@@ -1,6 +1,6 @@
 import http from 'http';
-import app from './api/v1/index.js';
-import { PORT } from './api/v1/config/env.js';
+import app from './api/v1/index';
+import { PORT } from './api/v1/config/env';
 
 
 const server = http.createServer(app);

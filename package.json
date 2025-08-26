@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/src/index.js",
-  "type": "module",
   "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "dev": "nodemon --exec tsx src/index.ts",
     "start": "node ./dist/src/index.js",
-    "build": "tsc",
+    "build": "npm run clean && tsc && tsc-alias",
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:migrate": "drizzle-kit migrate",
     "drizzle:push": "drizzle-kit push",
