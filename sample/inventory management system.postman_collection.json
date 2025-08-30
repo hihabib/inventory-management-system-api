@@ -1,0 +1,2567 @@
+{
+	"info": {
+		"_postman_id": "4ceb7498-1c98-415d-a58c-acbd87a91b11",
+		"name": "inventory management system",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "16607436",
+		"_collection_link": "https://speeding-star-292269.postman.co/workspace/Personal~f04243cf-3020-43fc-9a38-cbb82e670f3f/collection/16607436-4ceb7498-1c98-415d-a58c-acbd87a91b11?action=share&source=collection_link&creator=16607436"
+	},
+	"item": [
+		{
+			"name": "users",
+			"item": [
+				{
+					"name": "signup",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"username\": \"admin\",\r\n    \"password\": \"admin\",\r\n    \"email\": \"admin@admin.com\",\r\n    \"fullName\": \"Admin Admn\",\r\n    \"role\": \"admin\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/users/register",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"users",
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "signin",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"username\": \"admin\",\r\n  \"password\": \"admin\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/users/signin",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"users",
+								"signin"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseURL}}/users/profile",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"users",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "units",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"unitLabel\": \"Piece\",\r\n  \"unitSuffix\": \"piece\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/units/",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"units",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseURL}}/units",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"units"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseURL}}/units/7fe6b482-57d5-4aa6-8506-41a77d34f4ab",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"units",
+								"7fe6b482-57d5-4aa6-8506-41a77d34f4ab"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseURL}}/units/7fe6b482-57d5-4aa6-8506-41a77d34f4ab",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"units",
+								"7fe6b482-57d5-4aa6-8506-41a77d34f4ab"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"unitLabel\": \"Kg\",\r\n  \"unitSuffix\": \"kg\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/units/4eb79b38-b42c-46d2-bddd-778aaea10acd",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"units",
+								"4eb79b38-b42c-46d2-bddd-778aaea10acd"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "outlets",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"test\",\r\n    \"location\": \"Ashulia, Savar, Dhaka\",\r\n    \"status\": \"active\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/outlets",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"outlets"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/outlets \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Downtown mwe\",\r\n    \"location\": \"123 Main St, Downtown\",\r\n    \"status\": \"active\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/outlets",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"outlets"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/outlets \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/outlets/1e980e17-88f1-43f0-8fd0-549d950c05b3",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"outlets",
+								"1e980e17-88f1-43f0-8fd0-549d950c05b3"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/outlets/OUTLET_ID \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"Ashulia\",\r\n    \"location\": \"Ashulia, Savar\",\r\n    \"status\": \"active\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/outlets/1e980e17-88f1-43f0-8fd0-549d950c05b3",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"outlets",
+								"1e980e17-88f1-43f0-8fd0-549d950c05b3"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/outlets/OUTLET_ID \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Updated Outlet Name\",\r\n    \"location\": \"Updated Location\",\r\n    \"status\": \"inactive\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/outlets/da573f66-b7eb-4022-9ddd-eba1a0e887e9",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"outlets",
+								"da573f66-b7eb-4022-9ddd-eba1a0e887e9"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/outlets/OUTLET_ID \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "customer-category",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"categoryName\": \"test Customer\",\r\n    \"categorySlug\": \"test-customer\",\r\n    \"discount\": 10,\r\n    \"discountType\": \"percentage\",\r\n    \"isDefault\": false\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/customer-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/customer-categories \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Walk-in Customer\",\r\n    \"categorySlug\": \"walk-in-customer\",\r\n    \"discount\": 0,\r\n    \"discountType\": \"fixed\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customer-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/customer-categories \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customer-categories/3ea1027e-a310-41a6-b2f0-65cd368e2857",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories",
+								"3ea1027e-a310-41a6-b2f0-65cd368e2857"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/customer-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"isDefault\": true\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/customer-categories/4318689f-89be-4d8e-aae1-c22be6e2127d",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories",
+								"4318689f-89be-4d8e-aae1-c22be6e2127d"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/customer-categories/CATEGORY_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Updated VIP Customer\",\r\n    \"categorySlug\": \"updated-vip-customer\",\r\n    \"discount\": 15,\r\n    \"discountType\": \"percentage\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customer-categories/564ea0f4-66bf-48f4-81aa-e10cb9cb9443",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories",
+								"564ea0f4-66bf-48f4-81aa-e10cb9cb9443"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/customer-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "get-default-customer-category",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customer-categories/default",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customer-categories",
+								"default"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/customer-categories/default \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "customer",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"test Smith\",\r\n    \"email\": \"joahn.smith@example.com\",\r\n    \"phone\": \"+1 (555) 123a-4567\",\r\n    \"categoryId\": \"4318689f-89be-4d8e-aae1-c22be6e2127d\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/customers",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customers"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/customers \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"John Smith\",\r\n    \"email\": \"john.smith@example.com\",\r\n    \"phone\": \"+1 (555) 123-4567\",\r\n    \"categoryId\": \"CATEGORY_ID_HERE\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customers",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customers"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/customers \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customers/28f0bb02-6084-4a98-b595-b96d297b1a9e",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customers",
+								"28f0bb02-6084-4a98-b595-b96d297b1a9e"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/customers/CUSTOMER_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"Lohn Smith\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/customers/28f0bb02-6084-4a98-b595-b96d297b1a9e",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customers",
+								"28f0bb02-6084-4a98-b595-b96d297b1a9e"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/customers/CUSTOMER_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Updated John Smith\",\r\n    \"email\": \"updated.john.smith@example.com\",\r\n    \"phone\": \"+1 (555) 987-6543\",\r\n    \"categoryId\": \"CATEGORY_ID_HERE\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/customers/623cfcd4-bbdd-4412-a8d8-6b29b6a3c33f",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"customers",
+								"623cfcd4-bbdd-4412-a8d8-6b29b6a3c33f"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/customers/CUSTOMER_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "product-category",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"categoryName\": \"Sweets\",\r\n    \"categorySlug\": \"sweets\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/product-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"product-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/product-categories \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Sweets\",\r\n    \"categorySlug\": \"sweets\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/product-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"product-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/product-categories \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/product-categories/d302b6a2-12fc-45ff-af79-92961f34a1d8",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"product-categories",
+								"d302b6a2-12fc-45ff-af79-92961f34a1d8"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/product-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"categoryName\": \"Sweets\",\r\n    \"categorySlug\": \"sweets\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/product-categories/d302b6a2-12fc-45ff-af79-92961f34a1d8",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"product-categories",
+								"d302b6a2-12fc-45ff-af79-92961f34a1d8"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/product-categories/CATEGORY_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Updated Sweets\",\r\n    \"categorySlug\": \"updated-sweets\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/product-categories/e87e00ab-21d4-46f3-8928-82e519744f2f",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"product-categories",
+								"e87e00ab-21d4-46f3-8928-82e519744f2f"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/product-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "production-house",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"test\",\r\n    \"location\": \"ashulia\",\r\n    \"status\": \"active\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/production-houses",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/production-houses \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Sweets\",\r\n    \"location\": \"123 Main St, Downtown\",\r\n    \"status\": \"active\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/production-houses",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/production-houses \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/production-houses/f27f1ffa-947e-414f-953c-ef1053ff7e5d",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses",
+								"f27f1ffa-947e-414f-953c-ef1053ff7e5d"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/production-houses/PRODUCTION_HOUSE_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"location\": \"Ashulia, savar\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/production-houses/f27f1ffa-947e-414f-953c-ef1053ff7e5d",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses",
+								"f27f1ffa-947e-414f-953c-ef1053ff7e5d"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/production-houses/PRODUCTION_HOUSE_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Updated Sweets\",\r\n    \"location\": \"123 Main St, Downtown\",\r\n    \"status\": \"inactive\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/production-houses/27156655-55ea-44f9-89cb-504624605e7f",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses",
+								"27156655-55ea-44f9-89cb-504624605e7f"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/production-houses/PRODUCTION_HOUSE_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "inventory-item",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"productName\": \"Special Sweqqqqqqaaets\",\r\n    \"sku\": \"SWT-0qq0a2qq1\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Demo Supplier Ltd.\",\r\n    \"lowStockThreshold\": 10,\r\n    \"mainUnitId\": \"4eb79b38-b42c-46d2-bddd-778aaea10acd\",\r\n    \"categoryIds\": [\"d302b6a2-12fc-45ff-af79-92961f34a1d8\"],\r\n    \"unitIds\": [\"4eb79b38-b42c-46d2-bddd-778aaea10acd\"],\r\n    \"stocks\": [\r\n      {\r\n        \"outletId\": \"1e980e17-88f1-43f0-8fd0-549d950c05b3\",\r\n        \"unitId\": \"4eb79b38-b42c-46d2-bddd-778aaea10acd\",\r\n        \"stock\": 11,\r\n        \"pricePerUnit\": 348\r\n      },\r\n      {\r\n        \"outletId\": \"1e980e17-88f1-43f0-8fd0-549d950c05b3\",\r\n        \"unitId\": \"4eb79b38-b42c-46d2-bddd-778aaea10acd\",\r\n        \"stock\": 10,\r\n        \"pricePerUnit\": 340\r\n      }\r\n    ]\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-items",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-items"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/inventory-items \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"productName\": \"Special Sweets\",\r\n    \"sku\": \"SWT-001\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Demo Supplier Ltd.\",\r\n    \"expireDate\": 1784679939768,\r\n    \"manufactureDate\": 1751553939768,\r\n    \"stockInDate\": 1753113939768,\r\n    \"lowStockThreshold\": 10,\r\n    \"mainUnitId\": \"UNIT_ID_HERE\",\r\n    \"categoryIds\": [\"CATEGORY_ID_HERE\"],\r\n    \"unitIds\": [\"UNIT_ID_HERE\", \"ANOTHER_UNIT_ID_HERE\"],\r\n    \"stocks\": [\r\n      {\r\n        \"outletId\": \"OUTLET_ID_HERE\",\r\n        \"unitId\": \"UNIT_ID_HERE\",\r\n        \"stock\": 11,\r\n        \"pricePerUnit\": 348\r\n      },\r\n      {\r\n        \"outletId\": \"OUTLET_ID_HERE\",\r\n        \"unitId\": \"ANOTHER_UNIT_ID_HERE\",\r\n        \"stock\": 10,\r\n        \"pricePerUnit\": 340\r\n      }\r\n    ]\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-items",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-items"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-items \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-items/7a73f26f-b9ee-492b-bffc-9e548ec9b391",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-items",
+								"7a73f26f-b9ee-492b-bffc-9e548ec9b391"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-items/ITEM_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"productName\": \"Upaadated Special Saweets\",\r\n    \"sku\": \"SWT-a001-UPDaATEaD\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Updated Supplier Ltd.\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-items/7a73f26f-b9ee-492b-bffc-9e548ec9b391",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-items",
+								"7a73f26f-b9ee-492b-bffc-9e548ec9b391"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/inventory-items/ITEM_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"productName\": \"Updated Special Sweets\",\r\n    \"sku\": \"SWT-001-UPDATED\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Updated Supplier Ltd.\",\r\n    \"lowStockThreshold\": 15,\r\n    \"mainUnitId\": \"UNIT_ID_HERE\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-items/1c7aa49f-489d-43ab-a3ce-18d0ae1ac2c7",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-items",
+								"1c7aa49f-489d-43ab-a3ce-18d0ae1ac2c7"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/inventory-items/ITEM_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "inventory-stock",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"inventoryItemId\": \"ITEM_ID_HERE\",\r\n    \"outletId\": \"OUTLET_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-stocks",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-stocks"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/inventory-stocks \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"inventoryItemId\": \"ITEM_ID_HERE\",\r\n    \"outletId\": \"OUTLET_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-stocks",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-stocks"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-stocks \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-stocks/a92948aa-5473-4028-924c-648b337d40d1",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-stocks",
+								"a92948aa-5473-4028-924c-648b337d40d1"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-stocks/STOCK_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"stock\": 202\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-stocks/a92948aa-5473-4028-924c-648b337d40d1",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-stocks",
+								"a92948aa-5473-4028-924c-648b337d40d1"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/inventory-stocks/STOCK_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"inventoryItemId\": \"ITEM_ID_HERE\",\r\n    \"outletId\": \"OUTLET_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 20,\r\n    \"pricePerUnit\": 360\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-stocks/a92948aa-5473-4028-924c-648b337d40d1",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-stocks",
+								"a92948aa-5473-4028-924c-648b337d40d1"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/inventory-stocks/STOCK_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "inventory-transaction",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"inventoryItemId\": \"f6fb644d-8907-4dd9-9c66-89c115fa5ccc\",\r\n    \"outletId\": \"1e980e17-88f1-43f0-8fd0-549d950c05b3\",\r\n    \"orderedUnitId\": \"666b38c7-9c40-4042-b40d-1b90930ce7f8\",\r\n    \"transactionType\": \"order\",\r\n    \"status\": \"Pending\",\r\n    \"quantity\": 100,\r\n    \"notes\": \"Please deliver between 5-6 PM.\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-transactions",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-transactions"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/inventory-transactions \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"inventoryItemId\": \"ITEM_ID_HERE\",\r\n    \"transactionType\": \"order\",\r\n    \"status\": \"ordered\",\r\n    \"quantity\": 15,\r\n    \"notes\": \"Festival season demand\",\r\n    \"createdAt\": 1754150739768,\r\n    \"updatedAt\": 1754150739768\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-transactions",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-transactions"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-transactions \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-transactions/d0a8c6f8-29fe-4ae8-82a5-95981406f102",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-transactions",
+								"d0a8c6f8-29fe-4ae8-82a5-95981406f102"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/inventory-transactions/TRANSACTION_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"transactionType\": \"return\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/inventory-transactions/d0a8c6f8-29fe-4ae8-82a5-95981406f102",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-transactions",
+								"d0a8c6f8-29fe-4ae8-82a5-95981406f102"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/inventory-transactions/TRANSACTION_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"inventoryItemId\": \"ITEM_ID_HERE\",\r\n    \"transactionType\": \"order\",\r\n    \"status\": \"shipped\",\r\n    \"quantity\": 20,\r\n    \"notes\": \"Updated order quantity\",\r\n    \"createdAt\": 1754150739768,\r\n    \"updatedAt\": 1754150739768\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/inventory-transactions/d0a8c6f8-29fe-4ae8-82a5-95981406f102",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"inventory-transactions",
+								"d0a8c6f8-29fe-4ae8-82a5-95981406f102"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/inventory-transactions/TRANSACTION_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "supply-category",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"categoryName\": \"Bakery\",\r\n    \"categorySlug\": \"bakery\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/supply-categories \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Sweets\",\r\n    \"categorySlug\": \"sweets\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-categories",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-categories"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-categories \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-categories/aaa90051-9f90-4972-877e-148bc4296350",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-categories",
+								"aaa90051-9f90-4972-877e-148bc4296350"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"categoryName\": \"Updated Sweets\",\r\n    \"categorySlug\": \"updated-sweets\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-categories/aaa90051-9f90-4972-877e-148bc4296350",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-categories",
+								"aaa90051-9f90-4972-877e-148bc4296350"
+							]
+						},
+						"description": "Generated from cURL: curl -X PUT http://localhost:3000/api/supply-categories/CATEGORY_ID_HERE \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"categoryName\": \"Updated Sweets\",\r\n    \"categorySlug\": \"updated-sweets\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-categories/aaa90051-9f90-4972-877e-148bc4296350",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-categories",
+								"aaa90051-9f90-4972-877e-148bc4296350"
+							]
+						},
+						"description": "Generated from cURL: curl -X DELETE http://localhost:3000/api/supply-categories/CATEGORY_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "supply-item",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"productName\": \"Moyda\",\r\n    \"sku\": \"SWT-001\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Demo Supplier Ltd.\",\r\n    \"lowStockThreshold\": 10,\r\n    \"mainUnitId\": \"4eb79b38-b42c-46d2-bddd-778aaea10acd\",\r\n    \"categoryIds\": [\"2775111d-1821-4e92-b54d-e04d0d026094\"],\r\n    \"unitIds\": [\"4eb79b38-b42c-46d2-bddd-778aaea10acd\"],\r\n    \"stocks\": [\r\n      {\r\n        \"productionHouseId\": \"1cf704e8-f75b-48fe-970e-421d619c1f65\",\r\n        \"unitId\": \"4eb79b38-b42c-46d2-bddd-778aaea10acd\",\r\n        \"stock\": 11,\r\n        \"pricePerUnit\": 348\r\n      }\r\n    ]\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-items",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-items"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/supply-items \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"productName\": \"Moyda\",\r\n    \"sku\": \"SWT-001\",\r\n    \"image\": \"http://placehold.co/70x70?text=1\",\r\n    \"supplierName\": \"Demo Supplier Ltd.\",\r\n    \"lowStockThreshold\": 10,\r\n    \"mainUnitId\": \"UNIT_ID_HERE\",\r\n    \"categoryIds\": [\"SUPPLY_CATEGORY_ID_HERE\"],\r\n    \"unitIds\": [\"UNIT_ID_HERE\"],\r\n    \"stocks\": [\r\n      {\r\n        \"productionHouseId\": \"PRODUCTION_HOUSE_ID_HERE\",\r\n        \"unitId\": \"UNIT_ID_HERE\",\r\n        \"stock\": 11,\r\n        \"pricePerUnit\": 348\r\n      }\r\n    ]\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-items",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-items"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-items \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-items/ITEM_ID_HERE",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-items",
+								"ITEM_ID_HERE"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-items/ITEM_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-items/ITEM_ID_HERE",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-items",
+								"ITEM_ID_HERE"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-items/ITEM_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "details Copy 2",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-items/ITEM_ID_HERE",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-items",
+								"ITEM_ID_HERE"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-items/ITEM_ID_HERE \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "supply-stock",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"supplyItemId\": \"SUPPLY_ITEM_ID_HERE\",\r\n    \"productionHouseId\": \"PRODUCTION_HOUSE_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-stocks",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-stocks"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/supply-stocks \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"supplyItemId\": \"SUPPLY_ITEM_ID_HERE\",\r\n    \"productionHouseId\": \"PRODUCTION_HOUSE_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "update",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-stocks/ecfc0d50-2065-4fa4-b4ed-829540180a97",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-stocks",
+								"ecfc0d50-2065-4fa4-b4ed-829540180a97"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/supply-stocks \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"supplyItemId\": \"SUPPLY_ITEM_ID_HERE\",\r\n    \"productionHouseId\": \"PRODUCTION_HOUSE_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/supply-stocks/ecfc0d50-2065-4fa4-b4ed-829540180a97",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-stocks",
+								"ecfc0d50-2065-4fa4-b4ed-829540180a97"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/supply-stocks \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"supplyItemId\": \"SUPPLY_ITEM_ID_HERE\",\r\n    \"productionHouseId\": \"PRODUCTION_HOUSE_ID_HERE\",\r\n    \"unitId\": \"UNIT_ID_HERE\",\r\n    \"stock\": 15,\r\n    \"pricePerUnit\": 350\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/supply-stocks",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"supply-stocks"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/supply-stocks \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "produciton-house",
+			"item": [
+				{
+					"name": "create",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n    \"name\": \"Bakery\",\r\n    \"location\": \"456 Oak Ave, Westside\",\r\n    \"status\": \"active\"\r\n  }",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL}}/production-houses",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses"
+							]
+						},
+						"description": "Generated from cURL: curl -X POST http://localhost:3000/api/production-houses \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\" \\\r\n  -d '{\r\n    \"name\": \"Sweets\",\r\n    \"location\": \"123 Main St, Downtown\",\r\n    \"status\": \"active\"\r\n  }'"
+					},
+					"response": []
+				},
+				{
+					"name": "list",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/production-houses",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/production-houses \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				},
+				{
+					"name": "delete",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_JWT_TOKEN"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL}}/production-houses/837d91d8-2eb9-47e7-ab2e-af9ea4285384",
+							"host": [
+								"{{baseURL}}"
+							],
+							"path": [
+								"production-houses",
+								"837d91d8-2eb9-47e7-ab2e-af9ea4285384"
+							]
+						},
+						"description": "Generated from cURL: curl -X GET http://localhost:3000/api/production-houses \\\r\n  -H \"Authorization: Bearer YOUR_JWT_TOKEN\""
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

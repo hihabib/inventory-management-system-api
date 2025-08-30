@@ -6,6 +6,7 @@ export const outlets = pgTable('outlets', {
     name: varchar('name').notNull(),
     location: text('location').notNull(),
     status: varchar('status').notNull().default('active'), // 'active' or 'inactive'
+    assignedTo: uuid('assigned_to').references(() => users.id).notNull().unique(),
     createdBy: uuid('created_by').references(() => users.id),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),

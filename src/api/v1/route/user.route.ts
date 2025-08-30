@@ -1,11 +1,12 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
 import { UserController } from '../controller/user.controller';
+import { authenticate } from '../middleware/auth';
+import { isManager } from '../middleware/role';
 
 const router = Router();
 
 // Public routes
-router.post('/register', UserController.register);
+router.post('/register', [authenticate, isManager], UserController.register);
 router.post('/signin', UserController.signIn);
 
 // Protected routes

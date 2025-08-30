@@ -1,18 +1,33 @@
 import { Router } from 'express';
-import userRoutes from './user.route';
-import unitRoutes from './unit.route';
+import customerRoutes from './customer.routes';
+import customerCategoryRoutes from './customerCategory.routes';
+import inventoryItemRoutes from './inventoryItem.routes';
+import inventoryStockRoutes from './inventoryStock.routes';
+import inventoryTransactionRoutes from './inventoryTransaction.routes';
 import outletRoutes from './outlet.route';
-import customerCategoryRoutes from './customerCategory.routes'
-import customerRoutes from './customer.routes'
 import productCategoryRoutes from './productCategory.routes';
+import productionHouseRoutes from './productionHouse.routes';
+import supplyCategoryRoutes from './supplyCategory.routes';
+import supplyItemRoutes from './supplyItem.routes';
+import supplyStockRoutes from './supplyStock.routes';
+import unitRoutes from './unit.route';
+import userRoutes from './user.route';
+import { isManager, isOutlet, isProductionManager } from '../middleware/role';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
 router.use("/users", userRoutes);
-router.use("/units", unitRoutes);
+router.use("/units", [authenticate, isOutlet], unitRoutes);
 router.use("/outlets", outletRoutes);
-router.use('/customer-categories', customerCategoryRoutes);
-router.use('/customers', customerRoutes);
-router.use('/product-categories', productCategoryRoutes);
-
+router.use('/customer-categories', [authenticate, isOutlet], customerCategoryRoutes);
+router.use('/customers', [authenticate, isOutlet], customerRoutes);
+router.use('/product-categories', [authenticate, isProductionManager], productCategoryRoutes);
+router.use('/production-houses', productionHouseRoutes);
+router.use('/inventory-items', inventoryItemRoutes);
+router.use('/inventory-stocks', inventoryStockRoutes);
+router.use('/inventory-transactions', inventoryTransactionRoutes);
+router.use('/supply-categories', supplyCategoryRoutes);
+router.use('/supply-items', [authenticate, isProductionManager], supplyItemRoutes);
+router.use('/supply-stocks', [authenticate, isProductionManager], supplyStockRoutes);
 export default router;

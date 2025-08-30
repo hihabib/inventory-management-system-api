@@ -4,8 +4,6 @@ import { CustomerCategoryController } from '../controller/customerCategory.contr
 
 const router = Router();
 
-// All customer category routes require authentication
-router.use(authenticate);
 
 // Create customer category
 router.post('/', CustomerCategoryController.createCustomerCategory);

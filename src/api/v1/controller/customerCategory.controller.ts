@@ -3,6 +3,7 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { CustomerCategoryService } from '../service/customerCategory.service';
+import { NewCustomerCategory } from '../drizzle/schema/customerCategory';
 
 export class CustomerCategoryController {
   // Create a new customer category
@@ -47,7 +48,7 @@ export class CustomerCategoryController {
     const { id } = req.params;
     const { categoryName, categorySlug, discount, discountType, isDefault } = req.body;
     
-    const categoryData: any = {};
+    const categoryData: Partial<Omit<NewCustomerCategory, "id">> = {};
     
     if (categoryName !== undefined) categoryData.categoryName = categoryName;
     if (categorySlug !== undefined) categoryData.categorySlug = categorySlug;

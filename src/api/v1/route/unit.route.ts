@@ -4,9 +4,6 @@ import { UnitController } from '../controller/unit.controller';
 
 const router = Router();
 
-// All unit routes require authentication
-router.use(authenticate);
-
 // Create unit
 router.post('/', UnitController.createUnit);
 

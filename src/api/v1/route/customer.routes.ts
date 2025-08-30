@@ -4,8 +4,6 @@ import { CustomerController } from '../controller/customer.controller';
 
 const router = Router();
 
-// All customer routes require authentication
-router.use(authenticate);
 
 // Create customer
 router.post('/', CustomerController.createCustomer);

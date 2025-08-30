@@ -1,16 +1,16 @@
 import jwt from 'jsonwebtoken';
 import { JWT_EXPIRES_IN, JWT_SECRET } from '../config/env';
+import { UserRole } from '../middleware/role';
 
 
 export interface JWTPayload {
   id: string;
   username: string;
   email: string;
-  role: string;
+  role: UserRole
 }
 
 export const generateToken = (payload: JWTPayload): string => {
-  // Using type assertion to resolve the TypeScript issue
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN } as any);
 };
 

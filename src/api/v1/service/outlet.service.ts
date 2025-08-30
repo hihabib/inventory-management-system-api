@@ -66,4 +66,20 @@ export class OutletService {
 
         return { success: true, message: 'Outlet deleted successfully' };
     }
+
+
+    // Get outlet by assigned user ID
+    static async getOutletByAssignedUserId(userId: string) {
+        const outlet = await db
+            .select()
+            .from(outlets)
+            .where(eq(outlets.assignedTo, userId))
+            .limit(1);
+
+        if (outlet.length === 0) {
+            return [];
+        }
+
+        return outlet[0];
+    }
 }
