@@ -26,6 +26,7 @@ interface OutletStockData {
 export interface InventoryItemWithDetails {
   id: string;
   productName: string;
+  productNameBengali: string;
   sku: string;
   image?: string;
   supplierName?: string;
@@ -175,6 +176,7 @@ export class InventoryItemService {
     }
     return Object.keys(stocksByOutlet).length > 0 ? {
       ...item[0],
+      productNameBengali: item[0].productNameBengali === null ? '' : item[0].productNameBengali,
       image: item[0].image === null ? undefined : item[0].image,
       supplierName: item[0].supplierName === null ? undefined : item[0].supplierName,
       lowStockThreshold: item[0].lowStockThreshold === null ? 0 : item[0].lowStockThreshold,
@@ -198,6 +200,7 @@ export class InventoryItemService {
   static async createInventoryItem(itemData: Partial<InventoryItemWithDetails>, createdBy?: string): Promise<InventoryItemWithDetails | null> {
     const {
       productName,
+      productNameBengali,
       sku,
       image,
       supplierName,
@@ -215,12 +218,50 @@ export class InventoryItemService {
     if (!sku) {
       throw new AppError('SKU is required', 400);
     }
+    if (!Array.isArray(categories) || categories.length === 0) {
+      throw new AppError('At least one category is required', 400);
+    }
+    if (!Array.isArray(units) || units.length === 0) {
+      throw new AppError('At least one unit is required', 400);
+    }
+    if (!mainUnit || typeof mainUnit.id !== 'string') {
+      throw new AppError('Main unit is required and must have a valid id', 400);
+    }
+    if (!outletsData || typeof outletsData !== 'object' || Object.keys(outletsData).length === 0) {
+      throw new AppError('At least one outlet with stock data is required', 400);
+    }
+    for (const [outletName, outletStockDataArray] of Object.entries(outletsData)) {
+      if (!Array.isArray(outletStockDataArray) || outletStockDataArray.length === 0) {
+        throw new AppError(`Outlet '${outletName}' must have at least one stock entry`, 400);
+      }
+      for (const outletStockData of outletStockDataArray) {
+        if (
+          !outletStockData.stocks ||
+          typeof outletStockData.stocks !== 'object' ||
+          Object.keys(outletStockData.stocks).length === 0
+        ) {
+          throw new AppError(`Stock data for outlet '${outletName}' is invalid or empty`, 400);
+        }
+        if (!outletStockData.createdAt) {
+          throw new AppError(`createdAt is required for outlet '${outletName}'`, 400);
+        }
+        if (!outletStockData.updatedAt) {
+          throw new AppError(`updatedAt is required for outlet '${outletName}'`, 400);
+        }
+      }
+    }
+    const existedSkuInventoryItem = await db.select().from(inventoryItems).where(eq(inventoryItems.sku, sku)).limit(1);
+    if (existedSkuInventoryItem[0]?.sku?.length) {
+      throw new AppError('SKU already exists for another inventory item', 400);
+    }
+
 
     // Start a transaction
     const result = await db.transaction(async (tx) => {
       // Create the main inventory item
       const [createdItem] = await tx.insert(inventoryItems).values({
         productName,
+        productNameBengali,
         sku,
         image: image || null,
         supplierName: supplierName || null,
@@ -350,6 +391,7 @@ export class InventoryItemService {
     // Extract basic fields from InventoryItemWithDetails
     const {
       productName,
+      productNameBengali,
       sku,
       image,
       supplierName,
@@ -359,6 +401,13 @@ export class InventoryItemService {
       units,
       outlets: outletsData
     } = itemData;
+
+    if (sku) {
+      const existedSkuInventoryItem = await db.select().from(inventoryItems).where(eq(inventoryItems.sku, sku!)).limit(1);
+      if (existedSkuInventoryItem[0] && (existedSkuInventoryItem[0].sku !== existingItem[0].sku)) {
+        throw new AppError('SKU already exists for another inventory item', 400);
+      }
+    }
 
     // Pre-fetch outlets to create maps (units map is no longer needed for stocks)
     const outletsMap = await db
@@ -377,6 +426,7 @@ export class InventoryItemService {
       // Update basic item fields
       const basicUpdateData: Partial<typeof inventoryItems.$inferInsert> = {};
       if (productName !== undefined) basicUpdateData.productName = productName;
+      if (productNameBengali !== undefined) basicUpdateData.productNameBengali = productNameBengali;
       if (sku !== undefined) basicUpdateData.sku = sku;
       if (image !== undefined) basicUpdateData.image = image;
       if (supplierName !== undefined) basicUpdateData.supplierName = supplierName;
