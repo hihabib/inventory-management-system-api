@@ -9,6 +9,7 @@ export class InventoryItemController {
   static createInventoryItem = requestHandler(async (req: AuthRequest, res: Response) => {
     const { 
       productName, 
+      productNameBengali,
       sku, 
       image, 
       supplierName, 
@@ -29,6 +30,7 @@ export class InventoryItemController {
     
     const newItem = await InventoryItemService.createInventoryItem({
       productName,
+      productNameBengali,
       sku,
       image,
       supplierName,

@@ -5,6 +5,7 @@ import { users } from './user';
 export const inventoryItems = pgTable('inventory_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   productName: varchar('product_name', { length: 255 }).notNull(),
+  productNameBengali: varchar('product_name_bengali', { length: 255 }).default(''),
   sku: varchar('sku', { length: 100 }).notNull().unique(),
   image: varchar('image', { length: 500 }),
   supplierName: varchar('supplier_name', { length: 255 }),
