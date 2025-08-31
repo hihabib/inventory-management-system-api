@@ -4,9 +4,9 @@ import { customerCategories } from './customerCategory';
 export const customers = pgTable('customers', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name').notNull(),
-  email: varchar('email').notNull().unique(),
-  phone: text('phone'),
-  categoryId: uuid('category_id').references(() => customerCategories.id),
+  email: varchar('email').default(""),
+  phone: text('phone').notNull().unique(),
+  categoryId: uuid('category_id').references(() => customerCategories.id).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

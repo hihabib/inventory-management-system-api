@@ -3,17 +3,13 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { CustomerService } from '../service/customer.service';
+import { Customer } from '../drizzle/schema/customer';
 // import { UpdateCustomerData } from '../types';
 
 export class CustomerController {
   // Create a new customer
   static createCustomer = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { name, email, phone, categoryId } = req.body;
-    
-    if (!name || !email) {
-      return sendResponse(res, 400, 'Customer name and email are required');
-    }
-    
+    const { name, email, phone, categoryId } = req.body as Partial<Customer>;
     const customerData = {
       name,
       email,
@@ -23,7 +19,7 @@ export class CustomerController {
     
     const newCustomer = await CustomerService.createCustomer(customerData);
     
-    sendResponse(res, 201, 'Customer created successfully', newCustomer);
+    sendResponse(res, 201, 'New Customer created successfully', newCustomer);
   });
   
   // Get all customers
