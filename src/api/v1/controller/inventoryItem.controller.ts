@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
-import { InventoryItemService } from '../service/inventoryItem.service';
+import { InventoryItemService, InventoryItemWithDetails } from '../service/inventoryItem.service';
 
 export class InventoryItemController {
   // Create a new inventory item
@@ -13,14 +13,15 @@ export class InventoryItemController {
       image, 
       supplierName, 
       lowStockThreshold,
-      mainUnitId,
-      categoryIds,
-      unitIds,
-      stocks
-    } = req.body;
+      mainUnit,
+      categories,
+      units,
+      outlets,
+
+    } = req.body as InventoryItemWithDetails;
     
-    if (!productName || !sku || !mainUnitId) {
-      return sendResponse(res, 400, 'Product name, SKU, and main unit ID are required');
+    if (!productName || !sku || !mainUnit) {
+      return sendResponse(res, 400, 'Product name, SKU, and main unit are required');
     }
     
     // Get the user ID from the authenticated request
@@ -32,10 +33,10 @@ export class InventoryItemController {
       image,
       supplierName,
       lowStockThreshold,
-      mainUnitId,
-      categoryIds,
-      unitIds,
-      stocks
+      mainUnit,
+      categories,
+      units,
+      outlets
     }, createdBy);
     
     sendResponse(res, 201, 'Inventory item created successfully', newItem);
@@ -43,7 +44,7 @@ export class InventoryItemController {
   
   // Get all inventory items
   static getAllInventoryItems = requestHandler(async (req: AuthRequest, res: Response) => {
-    const allItems = await InventoryItemService.getAllInventoryItems();
+    const allItems = await InventoryItemService.getAllInventoryItems(req.user);
     
     sendResponse(res, 200, 'Inventory items retrieved successfully', allItems);
   });

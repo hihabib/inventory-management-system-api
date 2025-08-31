@@ -68,7 +68,8 @@ export class UserService {
       id: user[0].id,
       username: user[0].username,
       email: user[0].email,
-      role: user[0].role as UserRole
+      role: user[0].role as UserRole,
+      defaultRoute: user[0].defaultRoute
     });
 
     // Return user data without password and token

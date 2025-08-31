@@ -3,7 +3,7 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { UnitService } from '../service/unit.service';
-import { UpdateUnitData } from '../types';
+// import { UpdateUnitData } from '../types';
 
 export class UnitController {
     // Create a new unit
@@ -46,7 +46,7 @@ export class UnitController {
         const { id } = req.params;
         const { unitLabel, unitSuffix } = req.body;
 
-        const unitData: UpdateUnitData = {};
+        const unitData: any = {};   // UpdateUnitData;
 
         if (unitLabel !== undefined) unitData.unitLabel = unitLabel;
         if (unitSuffix !== undefined) unitData.unitSuffix = unitSuffix;

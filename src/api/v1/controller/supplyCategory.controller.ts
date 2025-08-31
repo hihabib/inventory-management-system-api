@@ -3,7 +3,7 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { SupplyCategoryService } from '../service/supplyCategory.service';
-import { UpdateCategoryData } from '../types';
+// import  } fro as anym '../types';
 
 export class SupplyCategoryController {
   // Create a new supply category
@@ -46,7 +46,7 @@ export class SupplyCategoryController {
     const { id } = req.params;
     const { categoryName, categorySlug } = req.body;
     
-    const categoryData: UpdateCategoryData = {};
+    const categoryData = {} as any; // UpdateSupplyCategoryData;
     
     if (categoryName !== undefined) categoryData.categoryName = categoryName;
     if (categorySlug !== undefined) categoryData.categorySlug = categorySlug;

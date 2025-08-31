@@ -9,7 +9,7 @@ export const supplyStocks = pgTable('supply_stocks', {
   productionHouseId: uuid('production_house_id').references(() => productionHouses.id),
   unitId: uuid('unit_id').references(() => units.id),
   stock: integer('stock').notNull(),
-  pricePerUnit: numeric('price_per_unit', { precision: 10, scale: 2 }).notNull(),
+  pricePerUnit: numeric('price_per_unit', { precision: 10, scale: 2, mode: 'number' }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

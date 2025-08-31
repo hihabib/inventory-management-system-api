@@ -1,5 +1,5 @@
 import { customerCategories, NewCustomerCategory } from '../drizzle/schema/customerCategory';
-import { eq, ne } from 'drizzle-orm';
+import { eq, getTableColumns, ne, sql } from 'drizzle-orm';
 import { AppError } from '../utils/AppError';
 import { db } from '../drizzle/db';
 

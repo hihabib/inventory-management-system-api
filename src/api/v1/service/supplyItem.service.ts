@@ -364,7 +364,7 @@ export class SupplyItemService {
                 productionHouseId: productionHouseId,
                 unitId: unitId,
                 stock: stockInfo.stock,
-                pricePerUnit: String(stockInfo.pricePerUnit),
+                pricePerUnit: stockInfo.pricePerUnit,
                 createdAt: new Date(productionHouseStockData.createdAt),
                 updatedAt: new Date(productionHouseStockData.updatedAt)
               });

@@ -1,6 +1,6 @@
-import { pgTable, uuid, varchar, numeric, integer, bigint, timestamp } from 'drizzle-orm/pg-core';
-import { users } from './user';
+import { integer, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { units } from './unit';
+import { users } from './user';
 
 export const supplyItems = pgTable('supply_item', {
   id: uuid('id').defaultRandom().primaryKey(),

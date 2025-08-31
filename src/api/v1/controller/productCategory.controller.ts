@@ -3,7 +3,7 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { ProductCategoryService } from '../service/productCategory.service';
-import { UpdateCategoryData } from '../types';
+// import  } from '../types';
 
 export class ProductCategoryController {
   // Create a new product category
@@ -47,7 +47,7 @@ export class ProductCategoryController {
     const { categoryName, categorySlug } = req.body;
     
     // In the updateProductCategory method:
-    const categoryData: UpdateCategoryData = {};
+    const categoryData = {} as any; // UpdateProductCategoryData;
     
     if (categoryName !== undefined) categoryData.categoryName = categoryName;
     if (categorySlug !== undefined) categoryData.categorySlug = categorySlug;

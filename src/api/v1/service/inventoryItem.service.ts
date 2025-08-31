@@ -1,14 +1,15 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { productCategories } from '../drizzle/schema/productCategory';
 import { AppError } from '../utils/AppError';
 import { db } from '../drizzle/db';
 import { inventoryItems } from '../drizzle/schema/inventoryItem';
 import { inventoryItemCategories } from '../drizzle/schema/inventoryItemCategory';
 import { inventoryItemUnits } from '../drizzle/schema/inventoryItemUnit';
-import { inventoryStocks } from '../drizzle/schema/inventoryStock';
+import { inventoryStocks, NewInventoryStock } from '../drizzle/schema/inventoryStock';
 import { InventoryTransaction, inventoryTransactions } from '../drizzle/schema/inventoryTransaction';
 import { units as unitsTable } from '../drizzle/schema/unit';
 import { outlets } from '../drizzle/schema/outet';
+import { User } from '../drizzle/schema/user';
 
 // Type definitions
 interface StockByUnit {
@@ -22,14 +23,13 @@ interface OutletStockData {
   updatedAt: Date;
 }
 
-interface InventoryItemWithDetails {
+export interface InventoryItemWithDetails {
   id: string;
   productName: string;
   sku: string;
   image?: string;
   supplierName?: string;
   lowStockThreshold: number;
-  mainUnitId: string | null;
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -57,17 +57,15 @@ interface InventoryItemWithDetails {
 
 export class InventoryItemService {
   // Helper function to get complete item details
-  private static async getCompleteItemDetails(itemId: string): Promise<InventoryItemWithDetails> {
+  private static async getCompleteItemDetails(itemId: string, user?: Partial<User>): Promise<InventoryItemWithDetails | null> {
     const item = await db
       .select()
       .from(inventoryItems)
       .where(eq(inventoryItems.id, itemId))
       .limit(1);
-
     if (item.length === 0) {
       throw new AppError('Inventory item not found', 404);
     }
-
     // Get related data
     const categories = await db
       .select({
@@ -78,7 +76,6 @@ export class InventoryItemService {
       .from(inventoryItemCategories)
       .leftJoin(productCategories, eq(inventoryItemCategories.categoryId, productCategories.id))
       .where(eq(inventoryItemCategories.inventoryItemId, item[0].id));
-
     const itemUnits = await db
       .select({
         id: unitsTable.id,
@@ -88,7 +85,6 @@ export class InventoryItemService {
       .from(inventoryItemUnits)
       .leftJoin(unitsTable, eq(inventoryItemUnits.unitId, unitsTable.id))
       .where(eq(inventoryItemUnits.inventoryItemId, item[0].id));
-
     // Get main unit
     let mainUnit = null;
     if (item[0].mainUnitId) {
@@ -101,63 +97,70 @@ export class InventoryItemService {
         .from(unitsTable)
         .where(eq(unitsTable.id, item[0].mainUnitId))
         .limit(1);
-
       if (mainUnitResult.length > 0) {
         mainUnit = mainUnitResult[0];
       }
     }
-
-    // Get stocks with unit suffix
-    const stocks = await db
-      .select({
-        id: inventoryStocks.id,
-        outletId: inventoryStocks.outletId,
-        unitId: inventoryStocks.unitId,
-        stock: inventoryStocks.stock,
-        pricePerUnit: inventoryStocks.pricePerUnit,
-        createdAt: inventoryStocks.createdAt,
-        updatedAt: inventoryStocks.updatedAt,
-        unitSuffix: unitsTable.unitSuffix
-      })
-      .from(inventoryStocks)
-      .leftJoin(unitsTable, eq(inventoryStocks.unitId, unitsTable.id))
-      .where(eq(inventoryStocks.inventoryItemId, item[0].id));
-
-    const transactions = await db
-      .select()
-      .from(inventoryTransactions)
-      .where(eq(inventoryTransactions.inventoryItemId, item[0].id));
-
+    const { id: userId, role: userRole } = user || {};
+    // Determine if we should filter by user
+    const shouldFilterByUser = userRole === 'outlet' && userId;
+    // Get stocks with outlet information
+    let stocks;
+    if (shouldFilterByUser) {
+      // Filter by inventory item ID and user ID
+      stocks = await db
+        .select({
+          id: inventoryStocks.id,
+          outletId: inventoryStocks.outletId,
+          stocks: inventoryStocks.stocks, // Get the entire stocks object
+          createdAt: inventoryStocks.createdAt,
+          updatedAt: inventoryStocks.updatedAt,
+          outletName: outlets.name
+        })
+        .from(inventoryStocks)
+        .leftJoin(outlets, eq(inventoryStocks.outletId, outlets.id))
+        .where(and(
+          eq(inventoryStocks.inventoryItemId, item[0].id),
+          eq(outlets.assignedTo, userId)
+        ));
+    } else {
+      // Only filter by inventory item ID
+      stocks = await db
+        .select({
+          id: inventoryStocks.id,
+          outletId: inventoryStocks.outletId,
+          stocks: inventoryStocks.stocks, // Get the entire stocks object
+          createdAt: inventoryStocks.createdAt,
+          updatedAt: inventoryStocks.updatedAt,
+          outletName: outlets.name
+        })
+        .from(inventoryStocks)
+        .leftJoin(outlets, eq(inventoryStocks.outletId, outlets.id))
+        .where(eq(inventoryStocks.inventoryItemId, item[0].id));
+    }
     // Group stocks by outlet
     const stocksByOutlet: Record<string, OutletStockData[]> = {};
     for (const stock of stocks) {
-      // Get outlet name from the outlets table
-      const outletResult = await db
-        .select({
-          name: outlets.name
-        })
-        .from(outlets)
-        .where(eq(outlets.id, stock.outletId!))
-        .limit(1);
-
-      const outletName = outletResult[0]?.name || `Outlet ${stock.outletId}`;
-
+      // Use outlet name from the query result or fallback
+      const outletName = stock.outletName || `Outlet ${stock.outletId}`;
       if (!stocksByOutlet[outletName]) {
         stocksByOutlet[outletName] = [];
       }
 
+      // Cast the stocks field to the expected type
+      const stocksData = stock.stocks as Record<string, StockByUnit>;
+
+      // Add the outlet stock data
       stocksByOutlet[outletName].push({
-        stocks: {
-          [stock.unitSuffix!]: {
-            stock: stock.stock,
-            pricePerUnit: Number(stock.pricePerUnit)
-          }
-        },
+        stocks: stocksData,
         createdAt: stock.createdAt,
         updatedAt: stock.updatedAt
       });
     }
-
+    const transactions = await db
+      .select()
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.inventoryItemId, item[0].id));
     // Group transactions by type
     const transactionsByType = {
       orders: [] as InventoryTransaction[],
@@ -170,8 +173,7 @@ export class InventoryItemService {
         transactionsByType.returns.push(transaction);
       }
     }
-
-    return {
+    return Object.keys(stocksByOutlet).length > 0 ? {
       ...item[0],
       image: item[0].image === null ? undefined : item[0].image,
       supplierName: item[0].supplierName === null ? undefined : item[0].supplierName,
@@ -189,22 +191,30 @@ export class InventoryItemService {
       mainUnit,
       outlets: stocksByOutlet,
       transactions: transactionsByType
-    };
+    } : null;
   }
 
   // Create a new inventory item with related data
-  static async createInventoryItem(itemData: any, createdBy?: string): Promise<InventoryItemWithDetails> {
+  static async createInventoryItem(itemData: Partial<InventoryItemWithDetails>, createdBy?: string): Promise<InventoryItemWithDetails | null> {
     const {
       productName,
       sku,
       image,
       supplierName,
       lowStockThreshold,
-      mainUnitId,
-      categoryIds,
-      unitIds,
-      stocks
+      mainUnit,
+      categories,
+      units,
+      outlets: outletsData
     } = itemData;
+
+    // Validate required fields
+    if (!productName) {
+      throw new AppError('Product name is required', 400);
+    }
+    if (!sku) {
+      throw new AppError('SKU is required', 400);
+    }
 
     // Start a transaction
     const result = await db.transaction(async (tx) => {
@@ -212,10 +222,10 @@ export class InventoryItemService {
       const [createdItem] = await tx.insert(inventoryItems).values({
         productName,
         sku,
-        image,
-        supplierName,
-        lowStockThreshold,
-        mainUnitId,
+        image: image || null,
+        supplierName: supplierName || null,
+        lowStockThreshold: lowStockThreshold || 0,
+        mainUnitId: mainUnit?.id || null,
         createdBy: createdBy || null
       }).returning();
 
@@ -224,66 +234,115 @@ export class InventoryItemService {
       }
 
       // Create categories relationships
-      if (categoryIds && categoryIds.length > 0) {
-        const categoryRelations = categoryIds.map((categoryId: string) => ({
+      if (categories && categories.length > 0) {
+        const categoryRelations = categories.map((category) => ({
           inventoryItemId: createdItem.id,
-          categoryId
+          categoryId: category.id
         }));
         await tx.insert(inventoryItemCategories).values(categoryRelations);
       }
 
       // Create units relationships
-      if (unitIds && unitIds.length > 0) {
-        const unitRelations = unitIds.map((unitId: string) => ({
+      if (units && units.length > 0) {
+        const unitRelations = units.map((unit) => ({
           inventoryItemId: createdItem.id,
-          unitId
+          unitId: unit.id
         }));
         await tx.insert(inventoryItemUnits).values(unitRelations);
       }
 
-      // Create stocks
-      if (stocks && stocks.length > 0) {
-        const stockRecords = stocks.map((stock: any) => ({
-          inventoryItemId: createdItem.id,
-          outletId: stock.outletId,
-          unitId: stock.unitId,
-          stock: stock.stock,
-          pricePerUnit: stock.pricePerUnit
-        }));
-        await tx.insert(inventoryStocks).values(stockRecords);
+      // Create stocks from outlets structure
+      if (outletsData && Object.keys(outletsData).length > 0) {
+        const stockRecords: NewInventoryStock[] = [];
+
+        // Process each outlet by name
+        for (const [outletName, outletStockDataArray] of Object.entries(outletsData)) {
+          // Find outlet by name in the database
+          const outletResult = await tx
+            .select({ id: outlets.id })
+            .from(outlets)
+            .where(eq(outlets.name, outletName))
+            .limit(1);
+
+          if (outletResult.length === 0) {
+            throw new AppError(`Outlet with name '${outletName}' not found`, 404);
+          }
+
+          const outletId = outletResult[0].id;
+
+          // Process each stock data entry for this outlet
+          for (const outletStockData of outletStockDataArray) {
+            // Validate that stocks object exists and has entries
+            if (!outletStockData.stocks || Object.keys(outletStockData.stocks).length === 0) {
+              throw new AppError(`No stock data provided for outlet '${outletName}'`, 400);
+            }
+
+            // Convert and validate dates
+            const createdAt = outletStockData.createdAt instanceof Date
+              ? outletStockData.createdAt
+              : new Date(outletStockData.createdAt);
+
+            const updatedAt = outletStockData.updatedAt instanceof Date
+              ? outletStockData.updatedAt
+              : new Date(outletStockData.updatedAt);
+
+            if (isNaN(createdAt.getTime())) {
+              throw new AppError(`Invalid createdAt date for outlet '${outletName}'`, 400);
+            }
+
+            if (isNaN(updatedAt.getTime())) {
+              throw new AppError(`Invalid updatedAt date for outlet '${outletName}'`, 400);
+            }
+
+            // Create a single stock record for this outlet with all units
+            stockRecords.push({
+              inventoryItemId: createdItem.id,
+              outletId,
+              stocks: outletStockData.stocks, // Store the entire stocks object as JSONB
+              createdAt,
+              updatedAt
+            });
+          }
+        }
+
+        // Insert all stock records
+        if (stockRecords.length > 0) {
+          await tx.insert(inventoryStocks).values(stockRecords);
+        }
       }
 
       return createdItem;
     });
 
+    // Return complete item details
     return await this.getCompleteItemDetails(result.id);
   }
 
   // Get all inventory items with related data
-  static async getAllInventoryItems(): Promise<InventoryItemWithDetails[]> {
+  static async getAllInventoryItems(user?: Partial<User>): Promise<InventoryItemWithDetails[]> {
     const items = await db.select().from(inventoryItems);
 
     const itemsWithDetails = await Promise.all(items.map(async (item) => {
-      return this.getCompleteItemDetails(item.id);
+      return this.getCompleteItemDetails(item.id, user);
     }));
 
-    return itemsWithDetails;
+    return itemsWithDetails.filter(item => item !== null);
   }
 
+
   // Get inventory item by ID
-  static async getInventoryItemById(id: string): Promise<InventoryItemWithDetails> {
+  static async getInventoryItemById(id: string): Promise<InventoryItemWithDetails | null> {
     return await this.getCompleteItemDetails(id);
   }
 
   // Update inventory item
-  static async updateInventoryItem(id: string, itemData: Partial<InventoryItemWithDetails>): Promise<InventoryItemWithDetails> {
+  static async updateInventoryItem(id: string, itemData: Partial<InventoryItemWithDetails>): Promise<InventoryItemWithDetails | null> {
     // Check if item exists
     const existingItem = await db
       .select()
       .from(inventoryItems)
       .where(eq(inventoryItems.id, id))
       .limit(1);
-
     if (existingItem.length === 0) {
       throw new AppError('Inventory item not found', 404);
     }
@@ -295,24 +354,13 @@ export class InventoryItemService {
       image,
       supplierName,
       lowStockThreshold,
-      mainUnitId,
+      mainUnit,
       categories,
       units,
       outlets: outletsData
     } = itemData;
 
-    // Pre-fetch units and outlets to create maps
-    const unitsMap = await db
-      .select({ id: unitsTable.id, unitLabel: unitsTable.unitLabel })
-      .from(unitsTable)
-      .then(units => {
-        const map: Record<string, string> = {};
-        units.forEach(unit => {
-          map[unit.unitLabel] = unit.id;
-        });
-        return map;
-      });
-
+    // Pre-fetch outlets to create maps (units map is no longer needed for stocks)
     const outletsMap = await db
       .select({ id: outlets.id, name: outlets.name })
       .from(outlets)
@@ -333,8 +381,8 @@ export class InventoryItemService {
       if (image !== undefined) basicUpdateData.image = image;
       if (supplierName !== undefined) basicUpdateData.supplierName = supplierName;
       if (lowStockThreshold !== undefined) basicUpdateData.lowStockThreshold = lowStockThreshold;
-      if (mainUnitId !== undefined) basicUpdateData.mainUnitId = mainUnitId;
-
+      // Fixed: Extract id from mainUnit object
+      if (mainUnit !== undefined) basicUpdateData.mainUnitId = mainUnit?.id || null;
       basicUpdateData.updatedAt = new Date();
 
       if (Object.keys(basicUpdateData).length > 0) {
@@ -374,8 +422,7 @@ export class InventoryItemService {
       if (outletsData) {
         // Delete all existing stocks for this inventory item
         await tx.delete(inventoryStocks).where(eq(inventoryStocks.inventoryItemId, id));
-
-        const stockRecords: Array<typeof inventoryStocks.$inferInsert> = [];
+        const stockRecords: NewInventoryStock[] = [];
 
         // Process each outlet and its stocks
         for (const [outletName, outletStockDataArray] of Object.entries(outletsData)) {
@@ -394,31 +441,36 @@ export class InventoryItemService {
 
           // Process each stock data array for this outlet
           for (const outletStockData of outletStockDataArray) {
-            // Process each unit in the stocks object
-            for (const [unitSuffix, stockInfo] of Object.entries(outletStockData.stocks)) {
-              // Get unit ID by label
-              const unitResult = await tx
-                .select({ id: unitsTable.id })
-                .from(unitsTable)
-                .where(eq(unitsTable.unitSuffix, unitSuffix))
-                .limit(1);
-
-              if (unitResult.length === 0) {
-                throw new AppError(`Unit with label '${unitSuffix}' not found`, 404);
-              }
-
-              const unitId = unitResult[0].id;
-
-              stockRecords.push({
-                inventoryItemId: id,
-                outletId: outletId,
-                unitId: unitId,
-                stock: stockInfo.stock,
-                pricePerUnit: String(stockInfo.pricePerUnit),
-                createdAt: new Date(outletStockData.createdAt),
-                updatedAt: new Date(outletStockData.updatedAt)
-              });
+            // Validate that stocks object exists and has entries
+            if (!outletStockData.stocks || Object.keys(outletStockData.stocks).length === 0) {
+              throw new AppError(`No stock data provided for outlet '${outletName}'`, 400);
             }
+
+            // Convert and validate dates
+            const createdAt = outletStockData.createdAt instanceof Date
+              ? outletStockData.createdAt
+              : new Date(outletStockData.createdAt);
+
+            const updatedAt = outletStockData.updatedAt instanceof Date
+              ? outletStockData.updatedAt
+              : new Date(outletStockData.updatedAt);
+
+            if (isNaN(createdAt.getTime())) {
+              throw new AppError(`Invalid createdAt date for outlet '${outletName}'`, 400);
+            }
+
+            if (isNaN(updatedAt.getTime())) {
+              throw new AppError(`Invalid updatedAt date for outlet '${outletName}'`, 400);
+            }
+
+            // Create a single stock record for this outlet with all units
+            stockRecords.push({
+              inventoryItemId: id,
+              outletId: outletId,
+              stocks: outletStockData.stocks, // Store the entire stocks object as JSONB
+              createdAt,
+              updatedAt
+            });
           }
         }
 
@@ -430,7 +482,7 @@ export class InventoryItemService {
     });
 
     // Return complete item details
-    return await this.getCompleteItemDetails(id);
+    return this.getCompleteItemDetails(id);
   }
 
   // Delete inventory item and related data

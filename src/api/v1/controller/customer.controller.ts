@@ -3,7 +3,7 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { CustomerService } from '../service/customer.service';
-import { UpdateCustomerData } from '../types';
+// import { UpdateCustomerData } from '../types';
 
 export class CustomerController {
   // Create a new customer
@@ -47,7 +47,7 @@ export class CustomerController {
     const { id } = req.params;
     const { name, email, phone, categoryId } = req.body;
     
-    const customerData: UpdateCustomerData = {};
+    const customerData = {} as any; // UpdateCustomerData;
     
     if (name !== undefined) customerData.name = name;
     if (email !== undefined) customerData.email = email;
