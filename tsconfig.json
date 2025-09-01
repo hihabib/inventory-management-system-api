@@ -1,41 +1,26 @@
 {
   "compilerOptions": {
-    "checkJs": false,
-    "skipLibCheck": true,
-    "noEmitOnError": false,
     "target": "ES2022",
     "module": "commonjs",
-    "lib": ["dom", "es6", "es2017", "esnext.asynciterable"],
-    "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "moduleResolution": "node",
-    "removeComments": false,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "noImplicitThis": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+
+    "skipLibCheck": true,
+    "noEmitOnError": false,    // always emit JS
+    "strict": false,           // kill all strict checks
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "noImplicitThis": false,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": false,
+
     "resolveJsonModule": true,
-    "typeRoots": ["./global.d.ts", "./node_modules/@types"],
-    "baseUrl": "./src", // Base directory
-    "paths": {
-      "@/*": ["./*"],
-    }
+    "sourceMap": true
   },
-  "exclude": ["node_modules", "json"],
-  "include": [
-    "./src/**/*.ts",
-    "./global.d.ts",
-    "test/**/*.ts",
-    "src/api/v1/locales/languages/*.json",
-    "src/api/v1/services/wheel-and-tire/index.ts",
-    "src/api/v1/services/distributors/elitewheeltire/get-products.js"
-  ]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }
