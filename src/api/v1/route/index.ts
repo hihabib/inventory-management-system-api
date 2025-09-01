@@ -14,7 +14,8 @@ import unitRoutes from './unit.route';
 import userRoutes from './user.route';
 import { isManager, isOutlet, isProductionManager } from '../middleware/role';
 import { authenticate } from '../middleware/auth';
-import saleRoutes from './sale';
+import saleRoutes from './sale.routes';
+import orderRoutes from './order.routes'
 
 const router = Router();
 
@@ -32,4 +33,5 @@ router.use('/supply-categories', supplyCategoryRoutes);
 router.use('/supply-items', [authenticate, isProductionManager], supplyItemRoutes);
 router.use('/supply-stocks', [authenticate, isProductionManager], supplyStockRoutes);
 router.use('/sales', [authenticate, isOutlet], saleRoutes);
+router.use('/orders', orderRoutes);
 export default router;
