@@ -4,15 +4,18 @@ import { pgTable, uuid, integer, numeric, varchar, timestamp } from 'drizzle-orm
 import { users } from './user';
 import { customerCategories } from './customerCategory';
 import { customers } from './customer';
+import { inventoryItems } from './inventoryItem';
+import { outlets } from './outet';
 
 // Sold Records Table
 export const soldRecords = pgTable('sold_records', {
     id: uuid('id').defaultRandom().primaryKey(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+    outletId: uuid('outlet_id').references(() => outlets.id, { onDelete: 'cascade' }).notNull(),
     customerCategoryId: uuid('customer_category_id').references(() => customerCategories.id, { onDelete: 'restrict' }).notNull(),
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
-    totalQuantity: integer('total_quantity').notNull(),
-    totalPriceWithoutDiscount: numeric('total_price_without_discount', { precision: 10, scale: 2, mode: 'number' }).notNull(),
+    totalQuantity: numeric('total_quantity', { precision: 10, scale: 2, mode: 'number' }).notNull(),
+    totalPriceWithoutDiscount: numeric('total_price_without_discount', { precision: 10, scale: 2 }).notNull(),
     totalDiscount: numeric('total_discount', { precision: 10, scale: 2, mode: 'number' }).notNull(),
     totalPriceWithDiscount: numeric('total_price_with_discount', { precision: 10, scale: 2, mode: 'number' }).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -23,12 +26,14 @@ export const soldRecords = pgTable('sold_records', {
 export const soldItems = pgTable('sold_items', {
     id: uuid('id').defaultRandom().primaryKey(),
     soldRecordId: uuid('sold_record_id').references(() => soldRecords.id, { onDelete: 'cascade' }).notNull(),
+    inventoryItemId: uuid('inventory_item_id').references(() => inventoryItems.id, { onDelete: 'restrict' }).notNull(),
     productName: varchar('product_name', { length: 255 }).notNull(),
     discount: numeric('discount', { precision: 10, scale: 2, mode: 'number' }).notNull(),
     discountType: varchar('discount_type', { length: 50 }).notNull(), // 'fixed' or 'percentage'
     price: numeric('price', { precision: 10, scale: 2, mode: 'number' }).notNull(),
-    quantity: integer('quantity').notNull(),
-    stock: integer('stock').notNull(),
+    quantity: numeric('quantity', { precision: 10, scale: 2, mode: 'number' }).notNull(),
+    unitSuffix: varchar('unit_suffix', { length: 50 }).notNull(),
+    stock: numeric('stock', { precision: 10, scale: 2, mode: 'number' }).notNull(),
 });
 
 // Sold Payment Info Table

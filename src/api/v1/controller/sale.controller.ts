@@ -8,17 +8,22 @@ export class SaleController {
     // Create a new sale record
     static createSale = requestHandler(async (req: AuthRequest, res: Response) => {
         const {
+            outletId,
+            customerCategoryId,
+            customerId,
             products,
             totalQuantity,
             totalPriceWithoutDiscount,
             totalDiscount,
             totalPriceWithDiscount,
-            paymentInfo,
-            customerCategoryId,
-            customerId
+            paymentInfo
         } = req.body;
 
         // Validate required fields
+        if (!outletId) {
+            return sendResponse(res, 400, 'Outlet ID is required');
+        }
+
         if (!products || !Array.isArray(products) || products.length === 0) {
             return sendResponse(res, 400, 'Products are required');
         }
@@ -41,10 +46,21 @@ export class SaleController {
             return sendResponse(res, 401, 'User not authenticated');
         }
 
+        // Validate that each product has the required fields
+        for (const product of products) {
+            if (!product.inventoryItemId) {
+                return sendResponse(res, 400, 'Each product must have an inventoryItemId');
+            }
+            if (!product.unitSuffix) {
+                return sendResponse(res, 400, 'Each product must have a unitSuffix');
+            }
+        }
+
         // Create the sold record
         const soldRecord = await SaleService.createSoldRecord(
             {
                 userId,
+                outletId,
                 customerCategoryId,
                 customerId: customerId || null, // If customerId is not provided, it will be null
                 totalQuantity,
@@ -53,12 +69,14 @@ export class SaleController {
                 totalPriceWithDiscount
             },
             products.map((product: any) => ({
+                inventoryItemId: product.inventoryItemId,
                 productName: product.productName,
                 discount: product.discount,
                 discountType: product.discountType,
                 price: product.price,
                 quantity: product.quantity,
-                stock: product.stock
+                stock: product.stock,
+                unitSuffix: product.unitSuffix
             })),
             paymentInfo.map((payment: any) => ({
                 method: payment.method,
