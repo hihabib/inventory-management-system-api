@@ -12,12 +12,14 @@ import { outlets } from '../drizzle/schema/outet';
 import { User } from '../drizzle/schema/user';
 
 // Type definitions
-interface StockByUnit {
+export interface StockByUnit {
   stock: number;
   pricePerUnit: number;
 }
 
-interface OutletStockData {
+export interface OutletStockData {
+  stockId: string;
+  outletId: string;
   stocks: Record<string, StockByUnit>;
   createdAt: Date;
   updatedAt: Date;
@@ -58,7 +60,7 @@ export interface InventoryItemWithDetails {
 
 export class InventoryItemService {
   // Helper function to get complete item details
-  private static async getCompleteItemDetails(itemId: string, user?: Partial<User>): Promise<InventoryItemWithDetails | null> {
+  public static async getCompleteItemDetails(itemId: string, user?: Partial<User>): Promise<InventoryItemWithDetails | null> {
     const item = await db
       .select()
       .from(inventoryItems)
@@ -153,7 +155,9 @@ export class InventoryItemService {
 
       // Add the outlet stock data
       stocksByOutlet[outletName].push({
+        stockId: stock.id,
         stocks: stocksData,
+        outletId: stock.outletId,
         createdAt: stock.createdAt,
         updatedAt: stock.updatedAt
       });
@@ -174,7 +178,7 @@ export class InventoryItemService {
         transactionsByType.returns.push(transaction);
       }
     }
-    return Object.keys(stocksByOutlet).length > 0 ? {
+    return  {
       ...item[0],
       productNameBengali: item[0].productNameBengali === null ? '' : item[0].productNameBengali,
       image: item[0].image === null ? undefined : item[0].image,
@@ -193,7 +197,7 @@ export class InventoryItemService {
       mainUnit,
       outlets: stocksByOutlet,
       transactions: transactionsByType
-    } : null;
+    } ;
   }
 
   // Create a new inventory item with related data

@@ -9,8 +9,8 @@ export class InventoryStockController {
   static createInventoryStock = requestHandler(async (req: AuthRequest, res: Response) => {
     const stockData = req.body;
     
-    if (!stockData.inventoryItemId || !stockData.outletId || !stockData.unitId || stockData.stock === undefined || stockData.pricePerUnit === undefined) {
-      return sendResponse(res, 400, 'Inventory item ID, outlet ID, unit ID, stock, and price per unit are required');
+    if (!stockData.inventoryItemId || !stockData.outletId  || stockData.stocks === undefined) {
+      return sendResponse(res, 400, 'Inventory item ID, outlet ID, and stocks are required');
     }
     
     const newStock = await InventoryStockService.createInventoryStock(stockData);
