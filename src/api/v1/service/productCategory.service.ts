@@ -5,6 +5,7 @@ import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/f
 
 export class ProductCategoryService {
     static async createProductCategory(productCategoryData: NewProductCategory) {
+        // @ts-ignore
         const [createdProductCategory] = await db.insert(productCategoryTable).values({...productCategoryData}).returning();
         return createdProductCategory;
     }
