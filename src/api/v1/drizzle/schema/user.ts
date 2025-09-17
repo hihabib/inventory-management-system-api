@@ -1,15 +1,18 @@
 import { pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { roleTable } from './role';
+import { maintainsTable } from './maintains';
 
-export const users = pgTable('users', {
+export const userTable = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   username: varchar('username').notNull().unique(),
   password: varchar('password').notNull(),
   email: varchar('email').notNull().unique(),
   fullName: varchar('full_name').notNull(),
-  role: varchar('role', { length: 50 }).notNull().default('user'), 
-  defaultRoute: varchar('default_route').notNull().default('/admin'),
+  roleId: uuid('role_id').references(() => roleTable.id).notNull(),
+  maintainsId: uuid('maintains_id').references(() => maintainsTable.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-export type User = typeof users.$inferSelect;
+export type UserTable = typeof userTable.$inferSelect;
+export type NewUser = typeof userTable.$inferInsert;

@@ -1,166 +1,117 @@
-import { Customer, customers, NewCustomer } from '../drizzle/schema/customer';
-import { eq } from 'drizzle-orm';
-import { AppError } from '../utils/AppError';
-import { db } from '../drizzle/db';
-import { customerCategories } from '../drizzle/schema/customerCategory';
+import { eq } from "drizzle-orm";
+import { db } from "../drizzle/db";
+import { NewCustomer, customerTable } from "../drizzle/schema/customer";
+import { customerCategoryTable } from "../drizzle/schema/customerCategory";
+import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 
 export class CustomerService {
-  // Create a new customer
-  static async createCustomer(customerData: Partial<Customer>) {
-
-    const { name, email, phone, categoryId } = customerData;
-
-    if (!name || !phone || !categoryId) {
-      throw new AppError('Customer name, phone, and category ID are required', 400);
-    }
-    // Check if customer with same email already exists
-    const existingCustomer = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.phone, phone))
-      .limit(1);
-
-    if (existingCustomer.length > 0) {
-      throw new AppError('Customer with this phone number already exists', 409);
+    static async createCustomer(customerData: NewCustomer) {
+        const [createdCustomer] = await db.insert(customerTable).values({ ...customerData }).returning();
+        return createdCustomer;
     }
 
-    if(email){
-      const existingCustomer = await db
-        .select()
-        .from(customers)
-        .where(eq(customers.email, email))
-        .limit(1);
+    static async updateCustomer(id: string, customerData: Partial<NewCustomer>) {
+        const updatedCustomer = await db.transaction(async (tx) => {
+            // Check if customer exists
+            const existingCustomer = await tx.select().from(customerTable).where(eq(customerTable.id, id));
+            if (existingCustomer.length === 0) {
+                tx.rollback();
+            }
 
-      if (existingCustomer.length > 0) {
-        throw new AppError('Customer with this email already exists', 409);
-      }
+            // Update the customer
+            const [updated] = await tx.update(customerTable)
+                .set({
+                    ...customerData,
+                    updatedAt: new Date()
+                })
+                .where(eq(customerTable.id, id))
+                .returning();
+
+            return updated;
+        });
+
+        return updatedCustomer;
     }
 
-    // If categoryId is provided, check if it exists
-    if (customerData.categoryId) {
-      const categoryExists = await db
-        .select({ id: customerCategories.id })
-        .from(customerCategories)
-        .where(eq(customerCategories.id, customerData.categoryId))
-        .limit(1);
+    static async deleteCustomer(id: string) {
+        return await db.transaction(async (tx) => {
+            // Check if customer exists
+            const existingCustomer = await tx.select().from(customerTable).where(eq(customerTable.id, id));
+            if (existingCustomer.length === 0) {
+                tx.rollback();
+            }
 
-      if (categoryExists.length === 0) {
-        throw new AppError('Customer category not found', 404);
-      }
+            // Delete the customer
+            const [deleted] = await tx.delete(customerTable)
+                .where(eq(customerTable.id, id))
+                .returning();
+
+            return deleted;
+        });
     }
 
-    // Insert the customer into the database
-    const [createdCustomer] = await db.insert(customers).values({
-      name: name,
-      phone: phone,
-      categoryId: categoryId,
-      email: email ?? null
-    }).returning();
-
-    if (!createdCustomer) {
-      throw new AppError('Failed to create customer', 500);
+    static async getCustomers(
+        pagination: PaginationOptions = {},
+        filter?: FilterOptions
+    ) {
+        return await filterWithPaginate(customerTable, {
+            pagination,
+            filter,
+            joins: [
+                {
+                    table: customerCategoryTable,
+                    alias: 'customerCategory',
+                    condition: eq(customerTable.categoryId, customerCategoryTable.id),
+                    type: "left"
+                }
+            ],
+            select: {
+                id: customerTable.id,
+                createdAt: customerTable.createdAt,
+                updatedAt: customerTable.updatedAt,
+                createdBy: customerTable.createdBy,
+                category: {
+                    id: customerCategoryTable.id,
+                    createdAt: customerCategoryTable.createdAt,
+                    updatedAt: customerCategoryTable.updatedAt,
+                    createdBy: customerCategoryTable.createdBy,
+                    categoryName: customerCategoryTable.categoryName,
+                    discountType: customerCategoryTable.discountType,
+                    discountAmount: customerCategoryTable.discountAmount,
+                },
+                name: customerTable.name,
+                email: customerTable.email,
+                phone: customerTable.phone,
+                about: customerTable.about,
+            }
+        });
     }
 
-    return createdCustomer;
-  }
+    static async getCustomerById(id: string) {
+        const [customer] = await db
+            .select({
+                id: customerTable.id,
+                createdAt: customerTable.createdAt,
+                updatedAt: customerTable.updatedAt,
+                createdBy: customerTable.createdBy,
+                category: {
+                    id: customerCategoryTable.id,
+                    createdAt: customerCategoryTable.createdAt,
+                    updatedAt: customerCategoryTable.updatedAt,
+                    createdBy: customerCategoryTable.createdBy,
+                    categoryName: customerCategoryTable.categoryName,
+                    discountType: customerCategoryTable.discountType,
+                    discountAmount: customerCategoryTable.discountAmount,
+                },
+                name: customerTable.name,
+                email: customerTable.email,
+                phone: customerTable.phone,
+                about: customerTable.about,
+            })
+            .from(customerTable)
+            .leftJoin(customerCategoryTable, eq(customerTable.categoryId, customerCategoryTable.id))
+            .where(eq(customerTable.id, id));
 
-  // Get all customers
-  static async getAllCustomers() {
-    const allCustomers = await db
-      .select({
-        id: customers.id,
-        name: customers.name,
-        email: customers.email,
-        phone: customers.phone,
-        categoryId: customers.categoryId,
-        createdAt: customers.createdAt,
-        updatedAt: customers.updatedAt
-      })
-      .from(customers);
-
-    return allCustomers;
-  }
-
-  // Get customer by ID
-  static async getCustomerById(id: string) {
-    const customer = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.id, id))
-      .limit(1);
-
-    if (customer.length === 0) {
-      throw new AppError('Customer not found', 404);
+        return customer;
     }
-
-    return customer[0];
-  }
-
-  // Update customer
-  static async updateCustomer(id: string, customerData: Partial<Omit<NewCustomer, 'id'>>) {
-    // Check if customer exists
-    const existingCustomer = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.id, id))
-      .limit(1);
-
-    if (existingCustomer.length === 0) {
-      throw new AppError('Customer not found', 404);
-    }
-
-    // If updating email, check for uniqueness
-    if (customerData.email) {
-      const duplicateCustomer = await db
-        .select()
-        .from(customers)
-        .where(eq(customers.email, customerData.email))
-        .limit(1);
-
-      if (duplicateCustomer.length > 0 && duplicateCustomer[0].id !== id) {
-        throw new AppError('Customer with this email already exists', 409);
-      }
-    }
-
-    // If updating categoryId, check if it exists
-    if (customerData.categoryId) {
-      const categoryExists = await db
-        .select({ id: customerCategories.id })
-        .from(customerCategories)
-        .where(eq(customerCategories.id, customerData.categoryId))
-        .limit(1);
-
-      if (categoryExists.length === 0) {
-        throw new AppError('Customer category not found', 404);
-      }
-    }
-
-    // Update the customer
-    const [updatedCustomer] = await db
-      .update(customers)
-      .set({ ...customerData, updatedAt: new Date() })
-      .where(eq(customers.id, id))
-      .returning();
-
-    return updatedCustomer;
-  }
-
-  // Delete customer
-  static async deleteCustomer(id: string) {
-    // Check if customer exists
-    const existingCustomer = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.id, id))
-      .limit(1);
-
-    if (existingCustomer.length === 0) {
-      throw new AppError('Customer not found', 404);
-    }
-
-    // Delete the customer
-    await db.delete(customers).where(eq(customers.id, id));
-
-    return { success: true, message: 'Customer deleted successfully' };
-  }
 }

@@ -1,85 +1,65 @@
-import { units, NewUnit } from '../drizzle/schema/unit';
-import { eq } from 'drizzle-orm';
-import { AppError } from '../utils/AppError';
-import { db } from '../drizzle/db';
+import { eq } from "drizzle-orm";
+import { db } from "../drizzle/db";
+import { NewUnit, unitTable } from "../drizzle/schema/unit";
+import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 
 export class UnitService {
-    // Create a new unit
-    static async createUnit(unitData: Omit<NewUnit, 'id'>) {
-        // Check if unit with same label already exists
-        const existingUnit = await db.select().from(units).where(eq(units.unitLabel, unitData.unitLabel)).limit(1);
-
-        if (existingUnit.length > 0) {
-            throw new AppError('Unit with this label already exists', 409);
-        }
-
-        // Insert the unit into the database
-        const [createdUnit] = await db.insert(units).values(unitData).returning();
-
-        if (!createdUnit) {
-            throw new AppError('Failed to create unit', 500);
-        }
-
+    static async createUnit(unit: NewUnit) {
+        const [createdUnit] = await db.insert(unitTable).values({
+            ...unit
+        }).returning();
         return createdUnit;
     }
 
-    // Get all units
-    static async getAllUnits() {
-        const allUnits = await db.select().from(units);
-        return allUnits;
-    }
-
-    // Get unit by ID
-    static async getUnitById(id: string) {
-        const unit = await db.select().from(units).where(eq(units.id, id)).limit(1);
-
-        if (unit.length === 0) {
-            throw new AppError('Unit not found', 404);
-        }
-
-        return unit[0];
-    }
-
-    // Update unit
-    static async updateUnit(id: string, unitData: Partial<Omit<NewUnit, 'id'>>) {
-        // Check if unit exists
-        const existingUnit = await db.select().from(units).where(eq(units.id, id)).limit(1);
-
-        if (existingUnit.length === 0) {
-            throw new AppError('Unit not found', 404);
-        }
-
-        // If updating unitLabel, check for uniqueness
-        if (unitData.unitLabel) {
-            const duplicateUnit = await db.select().from(units).where(eq(units.unitLabel, unitData.unitLabel)).limit(1);
-
-            if (duplicateUnit.length > 0 && duplicateUnit[0].id !== id) {
-                throw new AppError('Unit with this label already exists', 409);
+    static async updateUnit(id: string, unit: Partial<NewUnit>) {
+        const updatedUnit = await db.transaction(async (tx) => {
+            // Check if unit exists
+            const existingUnit = await tx.select().from(unitTable).where(eq(unitTable.id, id));
+            if (existingUnit.length === 0) {
+                tx.rollback();
             }
-        }
 
-        // Update the unit
-        const [updatedUnit] = await db
-            .update(units)
-            .set({ ...unitData, updatedAt: new Date() })
-            .where(eq(units.id, id))
-            .returning();
+            // Update the unit
+            const [updated] = await tx.update(unitTable)
+                .set({
+                    ...unit,
+                    updatedAt: new Date()
+                })
+                .where(eq(unitTable.id, id))
+                .returning();
+
+            return updated;
+        });
 
         return updatedUnit;
     }
 
-    // Delete unit
     static async deleteUnit(id: string) {
-        // Check if unit exists
-        const existingUnit = await db.select().from(units).where(eq(units.id, id)).limit(1);
+        return await db.transaction(async (tx) => {
+            // Check if unit exists
+            const existingUnit = await tx.select().from(unitTable).where(eq(unitTable.id, id));
+            if (existingUnit.length === 0) {
+                tx.rollback();
+            }
 
-        if (existingUnit.length === 0) {
-            throw new AppError('Unit not found', 404);
-        }
+            // Delete the unit
+            const [deleted] = await tx.delete(unitTable)
+                .where(eq(unitTable.id, id))
+                .returning();
 
-        // Delete the unit
-        await db.delete(units).where(eq(units.id, id));
+            return deleted;
+        });
+    }
 
-        return { success: true, message: 'Unit deleted successfully' };
+    static async getUnits(
+        pagination: PaginationOptions = {},
+        filter: FilterOptions = {}
+    ) {
+        return await filterWithPaginate(unitTable, {pagination, filter});
+    }
+
+    static async getUnitById(id: string) {
+        const [unit] = await db.select().from(unitTable).where(eq(unitTable.id, id));
+        return unit;
     }
 }

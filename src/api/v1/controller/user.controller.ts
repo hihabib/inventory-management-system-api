@@ -3,11 +3,13 @@ import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { UserService } from '../service/user.service';
+import { NewUser } from '../drizzle/schema/user';
+import { getFilterAndPaginationFromRequest } from '../utils/filterWithPaginate';
 
 export class UserController {
   // Register a new user
   static register = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { username, password, email, fullName, role, defaultRoute } = req.body;
+    const { username, password, email, fullName, roleId } = req.body as NewUser;
 
     // Check if user already exists
     const existingUser = await UserService.findByUsername(username) ||
@@ -23,8 +25,7 @@ export class UserController {
       password,
       email,
       fullName,
-      role: role || 'user',
-      defaultRoute: defaultRoute
+      roleId,
     });
 
     sendResponse(res, 201, 'User created successfully', newUser);
@@ -42,6 +43,12 @@ export class UserController {
 
     sendResponse(res, 200, 'Sign in successful', result);
   });
+
+  static getUsers = requestHandler(async(req:AuthRequest,res:Response)=>{
+    const {pagination, filter} = getFilterAndPaginationFromRequest(req);
+    const users = await UserService.getUsers(pagination, filter);
+    sendResponse(res, 200, 'Users retrieved successfully', users);
+  })
 
   // Get current user profile
   static getProfile = requestHandler(async (req: AuthRequest, res: Response) => {

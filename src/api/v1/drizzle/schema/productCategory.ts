@@ -1,15 +1,13 @@
-import { pgTable, uuid, varchar, timestamp } from 'drizzle-orm/pg-core';
-import { users } from './user';
+import { pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 
-export const productCategories = pgTable('product_category', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  categoryName: varchar('category_name', { length: 255 }).notNull().unique(),
-  categorySlug: varchar('category_slug', { length: 255 }).notNull().unique(),
-  createdBy: uuid('created_by').references(() => users.id),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+export const productCategoryTable = pgTable("product_category", {
+    id: uuid().defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    name: varchar().notNull(),
+    description: text(),
+    parentId: uuid('parent_id').references(() => productCategoryTable.id).default(null)
+})
 
-// Export types for TypeScript usage
-export type ProductCategory = typeof productCategories.$inferSelect;
-export type NewProductCategory = typeof productCategories.$inferInsert;
+export type ProductCategoryTable = typeof productCategoryTable.$inferSelect;
+export type NewProductCategory = typeof productCategoryTable.$inferInsert;

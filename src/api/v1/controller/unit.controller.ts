@@ -1,67 +1,43 @@
-import { Response } from 'express';
-import { requestHandler } from '../utils/requestHandler';
-import { sendResponse } from '../utils/response';
-import { AuthRequest } from '../middleware/auth';
-import { UnitService } from '../service/unit.service';
-// import { UpdateUnitData } from '../types';
+import { Response } from "express";
+import { NewUnit } from "../drizzle/schema/unit";
+import { AuthRequest } from "../middleware/auth";
+import { UnitService } from "../service/unit.service";
+import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
+import { requestHandler } from "../utils/requestHandler";
+import { sendResponse } from "../utils/response";
 
 export class UnitController {
-    // Create a new unit
     static createUnit = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { unitLabel, unitSuffix } = req.body;
+        const { name, description } = req.body as NewUnit;
+        const createdUnit = await UnitService.createUnit({ name, description });
+        sendResponse(res, 201, 'Unit created successfully', createdUnit);
+    })
 
-        if (!unitLabel || !unitSuffix) {
-            return sendResponse(res, 400, 'Unit label and suffix are required');
-        }
-
-        const unitData = {
-            unitLabel,
-            unitSuffix,
-            createdBy: req.user?.id // If user is authenticated, use their ID
-        };
-
-        const newUnit = await UnitService.createUnit(unitData);
-
-        sendResponse(res, 201, 'Unit created successfully', newUnit);
-    });
-
-    // Get all units
-    static getAllUnits = requestHandler(async (req: AuthRequest, res: Response) => {
-        const allUnits = await UnitService.getAllUnits();
-
-        sendResponse(res, 200, 'Units retrieved successfully', allUnits);
-    });
-
-    // Get unit by ID
-    static getUnitById = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { id } = req.params;
-
-        const unit = await UnitService.getUnitById(id);
-
-        sendResponse(res, 200, 'Unit retrieved successfully', unit);
-    });
-
-    // Update unit
     static updateUnit = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const { unitLabel, unitSuffix } = req.body;
-
-        const unitData: any = {};   // UpdateUnitData;
-
-        if (unitLabel !== undefined) unitData.unitLabel = unitLabel;
-        if (unitSuffix !== undefined) unitData.unitSuffix = unitSuffix;
-
-        const updatedUnit = await UnitService.updateUnit(id, unitData);
-
+        const { name, description } = req.body as Partial<NewUnit>;
+        const updatedUnit = await UnitService.updateUnit(id, { name, description });
         sendResponse(res, 200, 'Unit updated successfully', updatedUnit);
-    });
+    })
 
-    // Delete unit
     static deleteUnit = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
+        const deletedUnit = await UnitService.deleteUnit(id);
+        sendResponse(res, 200, 'Unit deleted successfully', deletedUnit);
+    })
 
-        const result = await UnitService.deleteUnit(id);
+    static getUnits = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { pagination, filter } = getFilterAndPaginationFromRequest(req);
+        const units = await UnitService.getUnits(pagination, filter);
+        sendResponse(res, 200, 'Units fetched successfully', units);
+    })
 
-        sendResponse(res, 200, result.message);
-    });
+    static getUnitById = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        const unit = await UnitService.getUnitById(id);
+        if (!unit) {
+            return sendResponse(res, 404, 'Unit not found', null);
+        }
+        sendResponse(res, 200, 'Unit fetched successfully', unit);
+    })
 }

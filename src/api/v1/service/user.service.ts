@@ -1,25 +1,29 @@
-import { users } from '../drizzle/schema/user';
-import { eq } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
-import { AppError } from '../utils/AppError';
-import { generateToken } from '../utils/jwt';
+import { eq } from 'drizzle-orm';
 import { db } from '../drizzle/db';
-import { UserRole } from '../middleware/role';
+import { NewUser, userTable } from '../drizzle/schema/user';
+import { AppError } from '../utils/AppError';
+import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
+import { generateToken } from '../utils/jwt';
+import { roleTable } from '../drizzle/schema/role';
+import { maintainsTable } from '../drizzle/schema/maintains';
 
 export class UserService {
   // Create a new user
-  static async createUser(userData: Omit<typeof users.$inferInsert, 'id'>) {
+  static async createUser(userData: NewUser) {
     // Hash the password
     const hashedPassword = await bcrypt.hash(userData.password, 10);
 
     // Create the user with hashed password
-    const newUser: Omit<typeof users.$inferInsert, 'id'> = {
+    const newUser = {
       ...userData,
       password: hashedPassword,
     };
 
+
+
     // Insert the user into the database
-    const [createdUser] = await db.insert(users).values(newUser).returning();
+    const [createdUser] = await db.insert(userTable).values(newUser).returning();
 
     if (!createdUser) {
       throw new AppError('Failed to create user', 500);
@@ -29,29 +33,55 @@ export class UserService {
     const { password, ...userWithoutPassword } = createdUser;
     return userWithoutPassword;
   }
+  static async getUsers(pagination: PaginationOptions = {},
+    filter: FilterOptions = {}) {
+    return await filterWithPaginate(userTable, { pagination, filter });
+  }
 
   // Find user by username
   static async findByUsername(username: string) {
-    const user = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    const user = await db.select().from(userTable).where(eq(userTable.username, username)).limit(1);
     return user[0] || null;
   }
 
   // Find user by email
   static async findByEmail(email: string) {
-    const user = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const user = await db.select().from(userTable).where(eq(userTable.email, email)).limit(1);
     return user[0] || null;
   }
 
   // Validate user password
-  static async validatePassword(user: typeof users.$inferSelect, password: string) {
+  static async validatePassword(user: typeof userTable.$inferSelect, password: string) {
     return await bcrypt.compare(password, user.password);
   }
 
   // Sign in user
   static async signIn(username: string, password: string) {
     // Find user by username
-    const user = await db.select().from(users).where(eq(users.username, username)).limit(1);
-
+    const user = await db.select({
+      id: userTable.id,
+      username: userTable.username,
+      password: userTable.password,
+      email: userTable.email,
+      fullName: userTable.fullName,
+      role: {
+        roleId: userTable.roleId,
+        roleName: roleTable.name,
+        defaultRoute: roleTable.defaultRoute
+      },
+      maintains: {
+        maintainsId: userTable.maintainsId,
+        name: maintainsTable.name,
+        type: maintainsTable.type
+      },
+      createdAt: userTable.createdAt,
+      updatedAt: userTable.updatedAt,
+    })
+      .from(userTable)
+      .leftJoin(roleTable, eq(userTable.roleId, roleTable.id))
+      .leftJoin(maintainsTable, eq(userTable.maintainsId, maintainsTable.id))
+      .where(eq(userTable.username, username)).limit(1);
+    console.log("user", user)
     if (!user || user.length === 0) {
       throw new AppError('Invalid username or password', 401);
     }
@@ -68,8 +98,7 @@ export class UserService {
       id: user[0].id,
       username: user[0].username,
       email: user[0].email,
-      role: user[0].role as UserRole,
-      defaultRoute: user[0].defaultRoute
+      roleId: user[0].role.roleId,
     });
 
     // Return user data without password and token

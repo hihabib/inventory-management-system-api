@@ -1,48 +1,38 @@
-import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt';
-import { AppError } from '../utils/AppError';
+import { NextFunction, Request, Response } from 'express';
+import * as jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../config/env';
 import { sendResponse } from '../utils/response';
-import { UserRole } from './role';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     username: string;
     email: string;
-    role: UserRole;
+    roleId: string;
   };
 }
 
-export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    // return res.status(401).json({ message: "No token provided" });
+    return sendResponse(res, 401, "No token provided");
+  }
+
+  const token = authHeader.split(" ")[1];
+
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return sendResponse(res, 401, 'Access denied. No token provided.');
-    }
-    
-    const decoded = verifyToken(token);
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      id: string;
+      username: string;
+      email: string;
+      roleId: string;
+    };
+
     req.user = decoded;
     next();
-  } catch (error) {
-    if (error instanceof AppError) {
-      return sendResponse(res, error.statusCode || 401, error.message);
-    }
-    
-    return sendResponse(res, 401, 'Invalid token');
+  } catch (err) {
+    // return res.status(401).json({ message: "Invalid or expired token" });
+    return sendResponse(res, 401, "Invalid or expired token");
   }
-};
-
-export const authorize = (roles: UserRole[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return sendResponse(res, 401, 'Access denied. Not authenticated.');
-    }
-    
-    if (!roles.includes(req.user.role)) {
-      return sendResponse(res, 403, 'Access denied. Not authorized.');
-    }
-    
-    next();
-  };
-};
+}

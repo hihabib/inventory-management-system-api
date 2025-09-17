@@ -1,14 +1,12 @@
 import jwt from 'jsonwebtoken';
 import { JWT_EXPIRES_IN, JWT_SECRET } from '../config/env';
-import { UserRole } from '../middleware/role';
 
 
 export interface JWTPayload {
   id: string;
   username: string;
   email: string;
-  role: UserRole;
-  defaultRoute: string;
+  roleId: string;
 }
 
 export const generateToken = (payload: JWTPayload): string => {

@@ -1,111 +1,95 @@
-import { productCategories, NewProductCategory } from '../drizzle/schema/productCategory';
-import { eq } from 'drizzle-orm';
-import { AppError } from '../utils/AppError';
-import { db } from '../drizzle/db';
+import { eq } from "drizzle-orm";
+import { db } from "../drizzle/db";
+import { NewProductCategory, productCategoryTable } from "../drizzle/schema/productCategory";
+import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 
 export class ProductCategoryService {
-  // Create a new product category
-  static async createProductCategory(categoryData: Omit<NewProductCategory, 'id'>) {
-    // Check if category with same name or slug already exists
-    const existingCategory = await db
-      .select()
-      .from(productCategories)
-      .where(
-        eq(productCategories.categoryName, categoryData.categoryName) || 
-        eq(productCategories.categorySlug, categoryData.categorySlug)
-      )
-      .limit(1);
-    
-    if (existingCategory.length > 0) {
-      throw new AppError('Product category with this name or slug already exists', 409);
+    static async createProductCategory(productCategoryData: NewProductCategory) {
+        const [createdProductCategory] = await db.insert(productCategoryTable).values({...productCategoryData}).returning();
+        return createdProductCategory;
     }
-    
-    // Insert the category into the database
-    const [createdCategory] = await db.insert(productCategories).values(categoryData).returning();
-    
-    if (!createdCategory) {
-      throw new AppError('Failed to create product category', 500);
-    }
-    
-    return createdCategory;
-  }
 
-  // Get all product categories
-  static async getAllProductCategories() {
-    const allCategories = await db.select().from(productCategories);
-    return allCategories;
-  }
+    static async updateProductCategory(id: string, productCategory: Partial<NewProductCategory>) {
+        const updatedProductCategory = await db.transaction(async (tx) => {
+            // Check if product category exists
+            const existingProductCategory = await tx.select().from(productCategoryTable).where(eq(productCategoryTable.id, id));
+            if (existingProductCategory.length === 0) {
+                tx.rollback();
+            }
 
-  // Get product category by ID
-  static async getProductCategoryById(id: string) {
-    const category = await db
-      .select()
-      .from(productCategories)
-      .where(eq(productCategories.id, id))
-      .limit(1);
-    
-    if (category.length === 0) {
-      throw new AppError('Product category not found', 404);
-    }
-    
-    return category[0];
-  }
+            // Prevent circular references in parent-child relationship
+            if (productCategory.parentId) {
+                // Check if the parent exists
+                const parentExists = await tx.select().from(productCategoryTable).where(eq(productCategoryTable.id, productCategory.parentId));
+                if (parentExists.length === 0) {
+                    tx.rollback();
+                }
 
-  // Update product category
-  static async updateProductCategory(id: string, categoryData: Partial<Omit<NewProductCategory, 'id'>>) {
-    // Check if category exists
-    const existingCategory = await db
-      .select()
-      .from(productCategories)
-      .where(eq(productCategories.id, id))
-      .limit(1);
-    
-    if (existingCategory.length === 0) {
-      throw new AppError('Product category not found', 404);
-    }
-    
-    // If updating categoryName or categorySlug, check for uniqueness
-    if (categoryData.categoryName || categoryData.categorySlug) {
-      const duplicateCategory = await db
-        .select()
-        .from(productCategories)
-        .where(
-          (categoryData.categoryName ? eq(productCategories.categoryName, categoryData.categoryName) : undefined) ||
-          (categoryData.categorySlug ? eq(productCategories.categorySlug, categoryData.categorySlug) : undefined)
-        )
-        .limit(1);
-      
-      if (duplicateCategory.length > 0 && duplicateCategory[0].id !== id) {
-        throw new AppError('Product category with this name or slug already exists', 409);
-      }
-    }
-    
-    // Update the category
-    const [updatedCategory] = await db
-      .update(productCategories)
-      .set({ ...categoryData, updatedAt: new Date() })
-      .where(eq(productCategories.id, id))
-      .returning();
-    
-    return updatedCategory;
-  }
+                // Prevent setting itself as parent
+                if (productCategory.parentId === id) {
+                    tx.rollback();
+                }
 
-  // Delete product category
-  static async deleteProductCategory(id: string) {
-    // Check if category exists
-    const existingCategory = await db
-      .select()
-      .from(productCategories)
-      .where(eq(productCategories.id, id))
-      .limit(1);
-    
-    if (existingCategory.length === 0) {
-      throw new AppError('Product category not found', 404);
+                // Prevent circular references (parent can't be a child of its children)
+                const childCategories = await tx.select().from(productCategoryTable).where(eq(productCategoryTable.parentId, id));
+                if (childCategories.some(child => child.id === productCategory.parentId)) {
+                    tx.rollback();
+                }
+            }
+
+            // Update the product category
+            const [updated] = await tx.update(productCategoryTable)
+                .set({
+                    ...productCategory,
+                    updatedAt: new Date()
+                })
+                .where(eq(productCategoryTable.id, id))
+                .returning();
+
+            return updated;
+        });
+
+        return updatedProductCategory;
     }
-    
-    // Delete the category
-    await db.delete(productCategories).where(eq(productCategories.id, id));
-    
-    return { success: true, message: 'Product category deleted successfully' };
-  }
+
+    static async deleteProductCategory(id: string) {
+        return await db.transaction(async (tx) => {
+            // Check if product category exists
+            const existingProductCategory = await tx.select().from(productCategoryTable).where(eq(productCategoryTable.id, id));
+            if (existingProductCategory.length === 0) {
+                tx.rollback();
+            }
+
+            // Check if there are child categories
+            const childCategories = await tx.select().from(productCategoryTable).where(eq(productCategoryTable.parentId, id));
+            if (childCategories.length > 0) {
+                // Update child categories to have no parent
+                await tx.update(productCategoryTable)
+                    .set({ parentId: null })
+                    .where(eq(productCategoryTable.parentId, id));
+            }
+
+            // Delete the product category
+            const [deleted] = await tx.delete(productCategoryTable)
+                .where(eq(productCategoryTable.id, id))
+                .returning();
+
+            return deleted;
+        });
+    }
+
+    static async getProductCategories(
+        pagination: PaginationOptions = {},
+        filter?: FilterOptions
+    ) {
+        return await filterWithPaginate(productCategoryTable, { pagination, filter });
+    }
+
+    static async getProductCategoryById(id: string) {
+        const [productCategory] = await db.select().from(productCategoryTable).where(eq(productCategoryTable.id, id));
+        return productCategory;
+    }
+
+ 
+
 }

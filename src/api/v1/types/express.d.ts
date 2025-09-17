@@ -1,5 +1,4 @@
 import { Request } from 'express';
-import { UserRole } from '../middleware/role';
 
 declare global {
   namespace Express {
@@ -8,7 +7,7 @@ declare global {
         id: string;
         username: string;
         email: string;
-        role: UserRole;
+        roleId: string;
       };
     }
   }

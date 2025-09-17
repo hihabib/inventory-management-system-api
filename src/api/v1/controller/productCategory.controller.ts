@@ -1,68 +1,45 @@
-import { Response } from 'express';
-import { requestHandler } from '../utils/requestHandler';
-import { sendResponse } from '../utils/response';
-import { AuthRequest } from '../middleware/auth';
-import { ProductCategoryService } from '../service/productCategory.service';
-// import  } from '../types';
+import { Request, Response } from "express";
+import { NewProductCategory } from "../drizzle/schema/productCategory";
+import { ProductCategoryService } from "../service/productCategory.service";
+import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
+import { requestHandler } from "../utils/requestHandler";
+import { sendResponse } from "../utils/response";
 
 export class ProductCategoryController {
-  // Create a new product category
-  static createProductCategory = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { categoryName, categorySlug } = req.body;
-    
-    if (!categoryName || !categorySlug) {
-      return sendResponse(res, 400, 'Category name and slug are required');
-    }
-    
-    const categoryData = {
-      categoryName,
-      categorySlug,
-      createdBy: req.user?.id // If user is authenticated, use their ID
-    };
-    
-    const newCategory = await ProductCategoryService.createProductCategory(categoryData);
-    
-    sendResponse(res, 201, 'Product category created successfully', newCategory);
-  });
-  
-  // Get all product categories
-  static getAllProductCategories = requestHandler(async (req: AuthRequest, res: Response) => {
-    const allCategories = await ProductCategoryService.getAllProductCategories();
-    
-    sendResponse(res, 200, 'Product categories retrieved successfully', allCategories);
-  });
-  
-  // Get product category by ID
-  static getProductCategoryById = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    
-    const category = await ProductCategoryService.getProductCategoryById(id);
-    
-    sendResponse(res, 200, 'Product category retrieved successfully', category);
-  });
-  
-  // Update product category
-  static updateProductCategory = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    const { categoryName, categorySlug } = req.body;
-    
-    // In the updateProductCategory method:
-    const categoryData = {} as any; // UpdateProductCategoryData;
-    
-    if (categoryName !== undefined) categoryData.categoryName = categoryName;
-    if (categorySlug !== undefined) categoryData.categorySlug = categorySlug;
-    
-    const updatedCategory = await ProductCategoryService.updateProductCategory(id, categoryData);
-    
-    sendResponse(res, 200, 'Product category updated successfully', updatedCategory);
-  });
-  
-  // Delete product category
-  static deleteProductCategory = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { id } = req.params;
-    
-    const result = await ProductCategoryService.deleteProductCategory(id);
-    
-    sendResponse(res, 200, result.message);
-  });
+    static createProductCategory = requestHandler(async (req: Request, res: Response) => {
+        const { name, description, parentId } = req.body as NewProductCategory;
+        const createdProductCategory = await ProductCategoryService.createProductCategory({ name, description, parentId });
+        sendResponse(res, 201, 'Product category created successfully', createdProductCategory);
+    })
+
+    static updateProductCategory = requestHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { name, description, parentId } = req.body as Partial<NewProductCategory>;
+        const updatedProductCategory = await ProductCategoryService.updateProductCategory(id, { name, description, parentId });
+        sendResponse(res, 200, 'Product category updated successfully', updatedProductCategory);
+    })
+
+    static deleteProductCategory = requestHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const deletedProductCategory = await ProductCategoryService.deleteProductCategory(id);
+        sendResponse(res, 200, 'Product category deleted successfully', deletedProductCategory);
+    })
+
+    static getProductCategories = requestHandler(async (req: Request, res: Response) => {
+        const { pagination, filter } = getFilterAndPaginationFromRequest(req);
+        const productCategories = await ProductCategoryService.getProductCategories(pagination, filter);
+        sendResponse(res, 200, 'Product categories fetched successfully', productCategories);
+    })
+
+    static getProductCategoryById = requestHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const productCategory = await ProductCategoryService.getProductCategoryById(id);
+        if (!productCategory) {
+            return sendResponse(res, 404, 'Product category not found', null);
+        }
+        sendResponse(res, 200, 'Product category fetched successfully', productCategory);
+    })
+
+
+
 }
