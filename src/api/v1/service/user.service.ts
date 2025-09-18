@@ -72,7 +72,10 @@ export class UserService {
       maintains: {
         maintainsId: userTable.maintainsId,
         name: maintainsTable.name,
-        type: maintainsTable.type
+        type: maintainsTable.type,
+        description: maintainsTable.description,
+        location: maintainsTable.location,
+        phone: maintainsTable.phone,
       },
       createdAt: userTable.createdAt,
       updatedAt: userTable.updatedAt,

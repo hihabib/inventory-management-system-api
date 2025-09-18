@@ -20,6 +20,8 @@ export const saleTable = pgTable('sale', {
     discountNote: text('discount_note').default(""),
     saleQuantity: numeric('sale_quantity', { mode: 'number', scale: 3 }).notNull(),
     saleAmount: numeric('sale_amount', { mode: 'number', scale: 2 }).notNull(),
+    pricePerUnit: numeric('price_per_unit', { mode: 'number', scale: 2 }).notNull(),
+    unit: varchar('unit', { length: 20 }).notNull(),
 })
 
 export type SaleTable = typeof saleTable.$inferSelect;

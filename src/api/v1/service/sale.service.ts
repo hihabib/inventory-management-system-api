@@ -59,8 +59,8 @@ export class SaleService {
                     if (product.discountType === "Fixed") {
                         saleAmount = (product.quantity * product.price) - product.discount;
                     } else { // Percentage
-                        saleAmount = (product.quantity * product.price) - 
-                                   (product.quantity * product.price * product.discount / 100);
+                        saleAmount = (product.quantity * product.price) -
+                            (product.quantity * product.price * product.discount / 100);
                     }
 
                     // Create sale record
@@ -75,7 +75,9 @@ export class SaleService {
                         discountAmount: product.discount,
                         discountNote: product.discountNote,
                         saleQuantity: product.quantity,
-                        saleAmount: saleAmount
+                        saleAmount: saleAmount,
+                        pricePerUnit: product.price,
+                        unit: product.unit
                     }).returning();
 
                     saleIds.push(sale.id);
@@ -114,12 +116,13 @@ export class SaleService {
                 }
 
                 // Create payment record
-                const paymentMethods: Record< PaymentMethod, number> = {
-                    "Bkash": 0,
-                    "Nogod": 0,
-                    "Cash": 0,
-                    "Due": 0,
-                    "Card": 0
+                const paymentMethods: Record<PaymentMethod, number> = {
+                    "bkash": 0,
+                    "nogod": 0,
+                    "cash": 0,
+                    "due": 0,
+                    "card": 0,
+                    'sendForUse': 0
                 };
                 saleData.paymentInfo.forEach(payment => {
                     paymentMethods[payment.method as keyof PaymentMethod] = payment.amount;
@@ -159,7 +162,46 @@ export class SaleService {
     ) {
         return await filterWithPaginate(saleTable, {
             pagination,
-            filter
+            filter,
+            joins: [
+                {
+                    table: paymentSaleTable,
+                    alias: 'paymentSale',
+                    condition: eq(saleTable.id, paymentSaleTable.saleId),
+                    type: 'left'
+                },
+                {
+                    table: paymentTable,
+                    alias: 'payment',
+                    condition: eq(paymentSaleTable.paymentId, paymentTable.id),
+                    type: 'left'
+                }
+            ],
+            select: {
+                // Sale fields
+                id: saleTable.id,
+                createdAt: saleTable.createdAt,
+                updatedAt: saleTable.updatedAt,
+                createdBy: saleTable.createdBy,
+                maintainsId: saleTable.maintainsId,
+                customerCategoryId: saleTable.customerCategoryId,
+                customerId: saleTable.customerId,
+                productId: saleTable.productId,
+                productName: saleTable.productName,
+                discountType: saleTable.discountType,
+                discountAmount: saleTable.discountAmount,
+                discountNote: saleTable.discountNote,
+                saleQuantity: saleTable.saleQuantity,
+                saleAmount: saleTable.saleAmount,
+                pricePerUnit: saleTable.pricePerUnit,
+                unit: saleTable.unit,
+                // Payment fields
+                paymentId: paymentTable.id,
+                paymentCreatedAt: paymentTable.createdAt,
+                paymentMethods: paymentTable.payments,
+                totalPaymentAmount: paymentTable.totalAmount,
+                customerDueId: paymentTable.customerDueId
+            }
         });
     }
 

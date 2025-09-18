@@ -4,7 +4,7 @@ import { saleTable } from "./sale";
 import { userTable } from "./user";
 import { customerDueTable } from "./customerDue";
 
-export type PaymentMethod = "Bkash" | "Nogod" | "Cash" | "Due" | "Card"
+export type PaymentMethod = "bkash" | "nogod" | "cash" | "due" | "card" | "sendForUse"
 
 export const paymentTable = pgTable('payment', {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity({ startWith: 100 }),
