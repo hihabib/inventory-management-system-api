@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewSale, saleTable } from "../drizzle/schema/sale";
+import { FilterOptions, PaginationOptions, filterWithPaginate } from '../utils/filterWithPaginate';
 import { NewPayment, paymentTable, PaymentMethod } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { stockTable } from "../drizzle/schema/stock";
@@ -153,34 +154,13 @@ export class SaleService {
     }
 
     static async getSales(
-        pagination: { page?: number; limit?: number } = {},
-        filter: { maintainsId?: string; customerId?: string; customerCategoryId?: string } = {}
+        pagination: PaginationOptions = {},
+        filter: FilterOptions = {}
     ) {
-        const query = db.select().from(saleTable);
-        
-        // Apply filters
-        const conditions = [];
-        if (filter.maintainsId) {
-            conditions.push(eq(saleTable.maintainsId, filter.maintainsId));
-        }
-        if (filter.customerId) {
-            conditions.push(eq(saleTable.customerId, filter.customerId));
-        }
-        if (filter.customerCategoryId) {
-            conditions.push(eq(saleTable.customerCategoryId, filter.customerCategoryId));
-        }
-
-        if (conditions.length > 0) {
-            query.where(and(...conditions));
-        }
-
-        // Apply pagination
-        const page = pagination.page || 1;
-        const limit = pagination.limit || 10;
-        const offset = (page - 1) * limit;
-
-        const sales = await query.limit(limit).offset(offset);
-        return sales;
+        return await filterWithPaginate(saleTable, {
+            pagination,
+            filter
+        });
     }
 
     static async getSaleById(id: string) {
