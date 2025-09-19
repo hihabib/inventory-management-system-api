@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, count, sum } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { saleTable } from "../drizzle/schema/sale";
@@ -9,6 +9,7 @@ import { productCategoryInProductTable } from "../drizzle/schema/productCategory
 interface WeeklySalesData {
     day: string;
     sales: number;
+    barPoint: number;
 }
 
 interface TopSellingProduct {
@@ -22,6 +23,7 @@ interface DashboardData {
     totalTransactions: number;
     totalSales: number;
     totalProducts: number;
+    totalSalePayment: number;
     weeklySales: WeeklySalesData[];
     topSellingProducts: TopSellingProduct[];
 }
@@ -52,6 +54,12 @@ export class DashboardService {
                 gte(productTable.createdAt, currentMonthStart),
                 lte(productTable.createdAt, currentMonthEnd)
             ));
+        const [totalPayment] = await db.select({ total: sum(paymentTable.totalAmount) })
+            .from(paymentTable)
+            .where(and(
+                gte(paymentTable.createdAt, currentMonthStart),
+                lte(paymentTable.createdAt, currentMonthEnd)
+            ));
 
         // Get last 7 days sales data
         const weeklySales = await this.getWeeklySalesData();
@@ -63,6 +71,7 @@ export class DashboardService {
             totalTransactions: transactionCount.count,
             totalSales: saleCount.count,
             totalProducts: productCount.count,
+            totalSalePayment: Number(totalPayment.total) || 0,
             weeklySales,
             topSellingProducts
         };
@@ -96,16 +105,35 @@ export class DashboardService {
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const weeklySales: WeeklySalesData[] = [];
 
+        // First pass: collect all sales data
+        const salesValues: number[] = [];
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
             date.setDate(today.getDate() - i);
             const dateString = date.toISOString().split('T')[0];
-            const dayName = dayNames[date.getDay()];
             
             const salesForDay = salesData.find(sale => sale.date === dateString);
+            const salesAmount = salesForDay ? Number(salesForDay.totalSales) : 0;
+            salesValues.push(salesAmount);
+        }
+
+        // Find maximum sales value for scaling
+        const maxSales = Math.max(...salesValues);
+        
+        // Second pass: create final array with barPoint calculations
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date(today);
+            date.setDate(today.getDate() - i);
+            const dayName = dayNames[date.getDay()];
+            const salesAmount = salesValues[6 - i];
+            
+            // Calculate barPoint: scale sales to fit within 1000
+            const barPoint = maxSales > 0 ? Math.round((salesAmount / maxSales) * 1000) : 0;
+            
             weeklySales.push({
                 day: dayName,
-                sales: salesForDay ? Number(salesForDay.totalSales) : 0
+                sales: salesAmount,
+                barPoint: barPoint
             });
         }
 
