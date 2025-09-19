@@ -99,6 +99,77 @@ export class StockService {
         });
     }
 
+    static async bulkCreateOrAddStock(stocks: NewStock[]) {
+        return await db.transaction(async (tx) => {
+            const results = [];
+            
+            for (const stock of stocks) {
+                // Check if stock exists with the same maintainsId, productId, unitId, and pricePerQuantity
+                const existingStock = await tx.select().from(stockTable).where(and(
+                    eq(stockTable.maintainsId, stock.maintainsId),
+                    eq(stockTable.productId, stock.productId),
+                    eq(stockTable.unitId, stock.unitId),
+                    eq(stockTable.pricePerQuantity, stock.pricePerQuantity),
+                ));
+                
+                // If stock exists with same price, add to existing quantity
+                if (existingStock.length > 0) {
+                    const currentQuantity = parseFloat(existingStock[0].quantity.toString());
+                    const addQuantity = parseFloat(stock.quantity.toString());
+                    const newQuantity = currentQuantity + addQuantity;
+                    
+                    const [updated] = await tx.update(stockTable)
+                        .set({
+                            quantity: newQuantity,
+                            updatedAt: new Date()
+                        })
+                        .where(eq(stockTable.id, existingStock[0].id))
+                        .returning();
+                    
+                    results.push({
+                        ...updated,
+                        action: 'quantity_added',
+                        previousQuantity: currentQuantity,
+                        addedQuantity: addQuantity,
+                        newQuantity: newQuantity
+                    });
+                } 
+                // If stock doesn't exist with same price, create new stock entry
+                else {
+                    // Verify the product-unit combination exists
+                    const existingProductUnit = await tx.select().from(unitInProductTable).where(and(
+                        eq(unitInProductTable.productId, stock.productId),
+                        eq(unitInProductTable.unitId, stock.unitId),
+                    ));
+                    
+                    if (existingProductUnit.length === 0) {
+                        // Skip this item if product-unit combination doesn't exist
+                        results.push({
+                            maintainsId: stock.maintainsId,
+                            productId: stock.productId,
+                            unitId: stock.unitId,
+                            pricePerQuantity: stock.pricePerQuantity,
+                            action: 'skipped',
+                            reason: 'Product-unit combination does not exist'
+                        });
+                        continue;
+                    }
+                    
+                    const [inserted] = await tx.insert(stockTable).values({
+                        ...stock,
+                    }).returning();
+                    
+                    results.push({
+                        ...inserted,
+                        action: 'created'
+                    });
+                }
+            }
+            
+            return results;
+        });
+    }
+
 
     static async updateStock({ id, ...stock }: Partial<NewStock> & { id: string }) {
         const updatedStock = await db.transaction(async (tx) => {

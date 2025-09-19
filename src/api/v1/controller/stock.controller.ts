@@ -31,4 +31,10 @@ export class StockController {
         const results = await StockService.bulkCreateOrUpdateStock(stocks);
         sendResponse(res, 200, 'Bulk stock operation completed successfully', results);
     })
+
+    static bulkCreateOrAddStock = requestHandler(async (req: Request, res: Response) => {
+        const stocks = req.body as NewStock[];
+        const results = await StockService.bulkCreateOrAddStock(stocks);
+        sendResponse(res, 200, 'Bulk stock add operation completed successfully', results);
+    })
 }

@@ -8,6 +8,7 @@ router
     .put('/', StockController.updateStock)
     .post('/', StockController.createStock)
     .post('/bulk', StockController.bulkCreateOrUpdateStock)
+    .post('/bulk-add', StockController.bulkCreateOrAddStock)
     .get('/', StockController.getStocks)
 
 export default router;
