@@ -11,6 +11,7 @@ import customerRoutes from './customer.route'
 import customerCategoryRoutes from './customerCategory.route'
 import saleRoutes from './sale.route'
 import paymentRoutes from './payment.route'
+import dashboardRoutes from './dashboard.route'
 const router = Router();
 
 router.use("/users", userRoutes);
@@ -24,5 +25,6 @@ router.use("/customers", [authMiddleware], customerRoutes);
 router.use("/customer-categories", [authMiddleware], customerCategoryRoutes);
 router.use("/sales", [authMiddleware], saleRoutes);
 router.use("/payments", [authMiddleware], paymentRoutes);
+router.use("/dashboard", [authMiddleware], dashboardRoutes);
 
 export default router;
