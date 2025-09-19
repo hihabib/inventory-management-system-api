@@ -41,11 +41,12 @@ export class StockService {
             const results = [];
             
             for (const stock of stocks) {
-                // Check if stock exists with the same maintainsId, productId, and unitId
+                // Check if stock exists with the same maintainsId, productId, unitId, and pricePerQuantity
                 const existingStock = await tx.select().from(stockTable).where(and(
                     eq(stockTable.maintainsId, stock.maintainsId),
                     eq(stockTable.productId, stock.productId),
                     eq(stockTable.unitId, stock.unitId),
+                    eq(stockTable.pricePerQuantity, stock.pricePerQuantity),
                 ));
                 
                 // If stock exists, update it

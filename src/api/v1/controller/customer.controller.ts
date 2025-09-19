@@ -9,7 +9,7 @@ import { AuthRequest } from "../middleware/auth";
 export class CustomerController {
     static createCustomer = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id: createdBy } = req.user;
-        const { name, email, phone, about, categoryId, } = req.body as NewCustomer;
+        const { name, email, phone, about, categoryId, discountAmount, discountType } = req.body as NewCustomer;
         const createdCustomer = await CustomerService.createCustomer({
             name,
             email,
@@ -17,14 +17,16 @@ export class CustomerController {
             phone,
             categoryId,
             about,
+            discountAmount,
+            discountType
         });
         sendResponse(res, 201, 'Customer created successfully', createdCustomer);
     })
 
     static updateCustomer = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const customerData = req.body as Partial<NewCustomer>;
-        const updatedCustomer = await CustomerService.updateCustomer(id, customerData);
+        const { name, email, phone, about, categoryId, discountAmount, discountType } = req.body as Partial<NewCustomer>;
+        const updatedCustomer = await CustomerService.updateCustomer(id, { name, email, phone, about, categoryId, discountAmount, discountType });
         sendResponse(res, 200, 'Customer updated successfully', updatedCustomer);
     })
 

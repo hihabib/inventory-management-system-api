@@ -1,5 +1,5 @@
 import { ProductCategoryInProductTable } from './../drizzle/schema/productCategoryInProduct';
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewProduct, productTable } from "../drizzle/schema/product";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
@@ -300,6 +300,7 @@ export class ProductService {
             filter: {
                 ...filter,
             },
+            orderBy: asc(productTable.name),
             joins: [
                 {
                     table: unitTable,

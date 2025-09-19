@@ -6,8 +6,27 @@ import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/f
 
 export class CustomerService {
     static async createCustomer(customerData: NewCustomer) {
-        const [createdCustomer] = await db.insert(customerTable).values({ ...customerData }).returning();
-        return createdCustomer;
+        return await db.transaction(async (tx) => {
+            // Check if email already exists
+            if (customerData.email) {
+                const existingEmailCustomer = await tx.select().from(customerTable).where(eq(customerTable.email, customerData.email));
+                if (existingEmailCustomer.length > 0) {
+                    throw new Error(`Customer with email '${customerData.email}' already exists`);
+                }
+            }
+
+            // Check if phone already exists
+            if (customerData.phone) {
+                const existingPhoneCustomer = await tx.select().from(customerTable).where(eq(customerTable.phone, customerData.phone));
+                if (existingPhoneCustomer.length > 0) {
+                    throw new Error(`Customer with phone '${customerData.phone}' already exists`);
+                }
+            }
+
+            // Create the customer
+            const [createdCustomer] = await tx.insert(customerTable).values({ ...customerData }).returning();
+            return createdCustomer;
+        });
     }
 
     static async updateCustomer(id: string, customerData: Partial<NewCustomer>) {
@@ -15,7 +34,23 @@ export class CustomerService {
             // Check if customer exists
             const existingCustomer = await tx.select().from(customerTable).where(eq(customerTable.id, id));
             if (existingCustomer.length === 0) {
-                tx.rollback();
+                throw new Error(`Customer with id '${id}' not found`);
+            }
+
+            // Check if email already exists (excluding current customer)
+            if (customerData.email) {
+                const existingEmailCustomer = await tx.select().from(customerTable).where(eq(customerTable.email, customerData.email));
+                if (existingEmailCustomer.length > 0 && existingEmailCustomer[0].id !== id) {
+                    throw new Error(`Customer with email '${customerData.email}' already exists`);
+                }
+            }
+
+            // Check if phone already exists (excluding current customer)
+            if (customerData.phone) {
+                const existingPhoneCustomer = await tx.select().from(customerTable).where(eq(customerTable.phone, customerData.phone));
+                if (existingPhoneCustomer.length > 0 && existingPhoneCustomer[0].id !== id) {
+                    throw new Error(`Customer with phone '${customerData.phone}' already exists`);
+                }
             }
 
             // Update the customer
@@ -38,7 +73,7 @@ export class CustomerService {
             // Check if customer exists
             const existingCustomer = await tx.select().from(customerTable).where(eq(customerTable.id, id));
             if (existingCustomer.length === 0) {
-                tx.rollback();
+                throw new Error(`Customer with id '${id}' not found`);
             }
 
             // Delete the customer
@@ -83,6 +118,8 @@ export class CustomerService {
                 email: customerTable.email,
                 phone: customerTable.phone,
                 about: customerTable.about,
+                discountType: customerTable.discountType,
+                discountAmount: customerTable.discountAmount
             }
         });
     }

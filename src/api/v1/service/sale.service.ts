@@ -6,6 +6,7 @@ import { NewPayment, paymentTable, PaymentMethod } from "../drizzle/schema/payme
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { stockTable } from "../drizzle/schema/stock";
 import { unitTable } from "../drizzle/schema/unit";
+import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
 
 interface ProductItem {
     productName: string;
@@ -128,11 +129,31 @@ export class SaleService {
                     paymentMethods[payment.method as keyof PaymentMethod] = payment.amount;
                 });
 
+                // Check if due amount is present and validate customer ID
+                const dueAmount = paymentMethods.due;
+                if (dueAmount > 0 && !saleData.customerId) {
+                    // throw new Error("Customer ID is required when due amount is greater than 0");
+                    tx.rollback();
+                }
+
+                // Create customer due record if due amount exists
+                let customerDueId: string | null = null;
+                if (dueAmount > 0 && saleData.customerId) {
+                    const [customerDue] = await tx.insert(customerDueTable).values({
+                        createdBy: userId,
+                        customerId: saleData.customerId,
+                        maintainsId: saleData.maintainsId,
+                        totalAmount: dueAmount,
+                        paidAmount: 0
+                    }).returning();
+                    customerDueId = customerDue.id;
+                }
+
                 const [payment] = await tx.insert(paymentTable).values({
                     maintainsId: saleData.maintainsId,
                     payments: paymentMethods as any,
                     totalAmount: saleData.totalPriceWithDiscount,
-                    customerDueId: null,
+                    customerDueId: customerDueId,
                     createdBy: userId
                 }).returning();
 
