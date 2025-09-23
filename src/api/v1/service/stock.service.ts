@@ -102,75 +102,174 @@ export class StockService {
 
     static async bulkCreateOrAddStock(stocks: NewStock[]) {
         return await db.transaction(async (tx) => {
-            const results = [];
-            
-            for (const stock of stocks) {
-                // Check if stock exists with the same maintainsId, productId, unitId, and pricePerQuantity
-                const existingStock = await tx.select().from(stockTable).where(and(
-                    eq(stockTable.maintainsId, stock.maintainsId),
-                    eq(stockTable.productId, stock.productId),
-                    eq(stockTable.unitId, stock.unitId),
-                    eq(stockTable.pricePerQuantity, stock.pricePerQuantity),
-                ));
-                
-                // If stock exists with same price, add to existing quantity
-                if (existingStock.length > 0) {
-                    const currentQuantity = parseFloat(existingStock[0].quantity.toString());
-                    const addQuantity = parseFloat(stock.quantity.toString());
-                    const newQuantity = currentQuantity + addQuantity;
-                    
-                    const [updated] = await tx.update(stockTable)
-                        .set({
-                            quantity: newQuantity,
-                            updatedAt: new Date()
-                        })
-                        .where(eq(stockTable.id, existingStock[0].id))
-                        .returning();
-                    
-                    results.push({
-                        ...updated,
-                        action: 'quantity_added',
-                        previousQuantity: currentQuantity,
-                        addedQuantity: addQuantity,
-                        newQuantity: newQuantity
-                    });
-                } 
-                // If stock doesn't exist with same price, create new stock entry
-                else {
-                    // Verify the product-unit combination exists
-                    const existingProductUnit = await tx.select().from(unitInProductTable).where(and(
-                        eq(unitInProductTable.productId, stock.productId),
-                        eq(unitInProductTable.unitId, stock.unitId),
-                    ));
-                    
-                    if (existingProductUnit.length === 0) {
-                        // Skip this item if product-unit combination doesn't exist
-                        results.push({
-                            maintainsId: stock.maintainsId,
-                            productId: stock.productId,
-                            unitId: stock.unitId,
-                            pricePerQuantity: stock.pricePerQuantity,
-                            action: 'skipped',
-                            reason: 'Product-unit combination does not exist'
-                        });
-                        continue;
-                    }
-                    
-                    const [inserted] = await tx.insert(stockTable).values({
-                        ...stock,
-                    }).returning();
-                    
-                    results.push({
-                        ...inserted,
-                        action: 'created'
-                    });
-                }
-            }
-            
-            return results;
+            return await this.bulkCreateOrAddStockWithTx(stocks, tx);
         });
     }
 
+    static async bulkCreateOrAddStockWithTx(stocks: NewStock[], tx: any) {
+        const results = [];
+        
+        for (const stock of stocks) {
+            // Check if stock exists with the same maintainsId, productId, unitId, and pricePerQuantity
+            const existingStock = await tx.select().from(stockTable).where(and(
+                eq(stockTable.maintainsId, stock.maintainsId),
+                eq(stockTable.productId, stock.productId),
+                eq(stockTable.unitId, stock.unitId),
+                eq(stockTable.pricePerQuantity, stock.pricePerQuantity),
+            ));
+            
+            // If stock exists with same price, add to existing quantity
+            if (existingStock.length > 0) {
+                const currentQuantity = parseFloat(existingStock[0].quantity.toString());
+                const addQuantity = parseFloat(stock.quantity.toString());
+                const newQuantity = currentQuantity + addQuantity;
+                
+                const [updated] = await tx.update(stockTable)
+                    .set({
+                        quantity: newQuantity,
+                        updatedAt: new Date()
+                    })
+                    .where(eq(stockTable.id, existingStock[0].id))
+                    .returning();
+                
+                results.push({
+                    ...updated,
+                    action: 'quantity_added',
+                    previousQuantity: currentQuantity,
+                    addedQuantity: addQuantity,
+                    newQuantity: newQuantity
+                });
+            } 
+            // If stock doesn't exist with same price, create new stock entry
+            else {
+                // Verify the product-unit combination exists
+                const existingProductUnit = await tx.select().from(unitInProductTable).where(and(
+                    eq(unitInProductTable.productId, stock.productId),
+                    eq(unitInProductTable.unitId, stock.unitId),
+                ));
+                
+                if (existingProductUnit.length === 0) {
+                    // Skip this item if product-unit combination doesn't exist
+                    results.push({
+                        maintainsId: stock.maintainsId,
+                        productId: stock.productId,
+                        unitId: stock.unitId,
+                        pricePerQuantity: stock.pricePerQuantity,
+                        action: 'skipped',
+                        reason: 'Product-unit combination does not exist'
+                    });
+                    continue;
+                }
+                
+                const [inserted] = await tx.insert(stockTable).values({
+                    ...stock,
+                }).returning();
+                
+                results.push({
+                    ...inserted,
+                    action: 'created'
+                });
+            }
+        }
+        
+        return results;
+    }
+
+    static async bulkReduceStockWithTx(stocksToReduce: Array<{maintainsId: string, productId: string, unitId: string, quantity: number}>, tx: any) {
+        const results = [];
+        
+        for (const stockReduction of stocksToReduce) {
+            // Find the specific stock record that matches maintainsId, productId, and unitId
+            const [primaryStockRecord] = await tx
+                .select()
+                .from(stockTable)
+                .where(
+                    and(
+                        eq(stockTable.maintainsId, stockReduction.maintainsId),
+                        eq(stockTable.productId, stockReduction.productId),
+                        eq(stockTable.unitId, stockReduction.unitId)
+                    )
+                );
+
+            if (!primaryStockRecord) {
+                results.push({
+                    maintainsId: stockReduction.maintainsId,
+                    productId: stockReduction.productId,
+                    unitId: stockReduction.unitId,
+                    action: 'skipped',
+                    reason: 'Primary stock record not found'
+                });
+                continue;
+            }
+
+            // Check if primary stock has sufficient quantity
+            const newPrimaryQuantity = primaryStockRecord.quantity - stockReduction.quantity;
+            if (newPrimaryQuantity < 0) {
+                throw new Error(`Insufficient stock for reduction. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
+            }
+
+            // Find all other stock records with same maintainsId and productId but different unitId
+            const allStockRecords = await tx
+                .select()
+                .from(stockTable)
+                .where(
+                    and(
+                        eq(stockTable.maintainsId, stockReduction.maintainsId),
+                        eq(stockTable.productId, stockReduction.productId)
+                    )
+                );
+
+            // Update the primary stock record directly
+            const [updatedPrimary] = await tx
+                .update(stockTable)
+                .set({
+                    quantity: newPrimaryQuantity,
+                    updatedAt: new Date()
+                })
+                .where(eq(stockTable.id, primaryStockRecord.id))
+                .returning();
+
+            results.push({
+                ...updatedPrimary,
+                action: 'quantity_reduced_direct',
+                previousQuantity: primaryStockRecord.quantity,
+                reducedQuantity: stockReduction.quantity,
+                newQuantity: newPrimaryQuantity
+            });
+
+            // Update other related stock records proportionally
+            const otherStockRecords = allStockRecords.filter(record => record.id !== primaryStockRecord.id);
+            
+            for (const relatedStock of otherStockRecords) {
+                // Calculate proportional reduction: (relatedStock.quantity / primaryStockRecord.quantity) * reductionQuantity
+                const proportionalReduction = (relatedStock.quantity / primaryStockRecord.quantity) * stockReduction.quantity;
+                const newRelatedQuantity = relatedStock.quantity - proportionalReduction;
+                
+                if (newRelatedQuantity < 0) {
+                    throw new Error(`Insufficient stock in related record for proportional reduction. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);
+                }
+
+                const [updatedRelated] = await tx
+                    .update(stockTable)
+                    .set({
+                        quantity: newRelatedQuantity,
+                        updatedAt: new Date()
+                    })
+                    .where(eq(stockTable.id, relatedStock.id))
+                    .returning();
+
+                results.push({
+                    ...updatedRelated,
+                    action: 'quantity_reduced_proportional',
+                    previousQuantity: relatedStock.quantity,
+                    reducedQuantity: proportionalReduction,
+                    newQuantity: newRelatedQuantity
+                });
+            }
+        }
+        
+        return results;
+    }
 
     static async updateStock({ id, ...stock }: Partial<NewStock> & { id: string }) {
         const updatedStock = await db.transaction(async (tx) => {

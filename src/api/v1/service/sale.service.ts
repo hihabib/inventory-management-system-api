@@ -83,7 +83,7 @@ export class SaleService {
 
                     saleIds.push(sale.id);
 
-                    // Find and update stock
+                    // Find the specific stock record for the sale
                     const [stockRecord] = await tx
                         .select()
                         .from(stockTable)
@@ -106,14 +106,47 @@ export class SaleService {
                         throw new Error(`Insufficient stock for product ${product.productName}. Available: ${stockRecord.quantity}, Required: ${product.quantity}`);
                     }
 
-                    // Update stock quantity
-                    await tx
-                        .update(stockTable)
-                        .set({
-                            quantity: newQuantity,
-                            updatedAt: new Date()
-                        })
-                        .where(eq(stockTable.id, stockRecord.id));
+                    // Find all stock records with same product ID and maintains ID
+                    const allStockRecords = await tx
+                        .select()
+                        .from(stockTable)
+                        .where(
+                            and(
+                                eq(stockTable.maintainsId, saleData.maintainsId),
+                                eq(stockTable.productId, product.productId)
+                            )
+                        );
+
+                    // Update all related stock records proportionally
+                    for (const relatedStock of allStockRecords) {
+                        if (relatedStock.id === stockRecord.id) {
+                            // Update the main selling stock record
+                            await tx
+                                .update(stockTable)
+                                .set({
+                                    quantity: newQuantity,
+                                    updatedAt: new Date()
+                                })
+                                .where(eq(stockTable.id, relatedStock.id));
+                        } else {
+                            // Calculate proportional reduction for other stock records
+                            // Formula: (relatedStock.quantity / stockRecord.quantity) * product.quantity
+                            const proportionalReduction = (relatedStock.quantity / stockRecord.quantity) * product.quantity;
+                            const newRelatedQuantity = relatedStock.quantity - proportionalReduction;
+                            
+                            if (newRelatedQuantity < 0) {
+                                throw new Error(`Insufficient stock in related record for product ${product.productName}. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);
+                            }
+
+                            await tx
+                                .update(stockTable)
+                                .set({
+                                    quantity: newRelatedQuantity,
+                                    updatedAt: new Date()
+                                })
+                                .where(eq(stockTable.id, relatedStock.id));
+                        }
+                    }
                 }
 
                 // Create payment record

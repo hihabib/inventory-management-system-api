@@ -1,2 +1,0 @@
-ALTER TABLE "product_category_in_product" DROP CONSTRAINT "test";--> statement-breakpoint
-ALTER TABLE "product_category_in_product" ADD CONSTRAINT "product_category_in_product_pk" PRIMARY KEY("product_category_id","product_id");

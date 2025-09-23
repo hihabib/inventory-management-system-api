@@ -12,6 +12,7 @@ import customerCategoryRoutes from './customerCategory.route'
 import saleRoutes from './sale.route'
 import paymentRoutes from './payment.route'
 import dashboardRoutes from './dashboard.route'
+import deliveryHistoryRoutes from './deliveryHistory.route'
 const router = Router();
 
 router.use("/users", userRoutes);
@@ -26,5 +27,6 @@ router.use("/customer-categories", [authMiddleware], customerCategoryRoutes);
 router.use("/sales", [authMiddleware], saleRoutes);
 router.use("/payments", [authMiddleware], paymentRoutes);
 router.use("/dashboard", [authMiddleware], dashboardRoutes);
+router.use("/delivery-histories", [authMiddleware], deliveryHistoryRoutes);
 
 export default router;

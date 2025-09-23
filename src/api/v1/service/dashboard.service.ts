@@ -82,9 +82,9 @@ export class DashboardService {
         const sevenDaysAgo = new Date(today);
         sevenDaysAgo.setDate(today.getDate() - 6);
         
-        // Set time to start of day for sevenDaysAgo and end of day for today
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-        today.setHours(23, 59, 59, 999);
+        // Set time to start of day for sevenDaysAgo and end of day for today in UTC
+        sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+        today.setUTCHours(23, 59, 59, 999);
 
         const salesData = await db
             .select({
@@ -109,7 +109,7 @@ export class DashboardService {
         const salesValues: number[] = [];
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
-            date.setDate(today.getDate() - i);
+            date.setUTCDate(today.getUTCDate() - i);
             const dateString = date.toISOString().split('T')[0];
             
             const salesForDay = salesData.find(sale => sale.date === dateString);
@@ -123,8 +123,8 @@ export class DashboardService {
         // Second pass: create final array with barPoint calculations
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
-            date.setDate(today.getDate() - i);
-            const dayName = dayNames[date.getDay()];
+            date.setUTCDate(today.getUTCDate() - i);
+            const dayName = dayNames[date.getUTCDay()];
             const salesAmount = salesValues[6 - i];
             
             // Calculate barPoint: scale sales to fit within 1000
@@ -132,7 +132,7 @@ export class DashboardService {
             
             weeklySales.push({
                 day: dayName,
-                sales: salesAmount,
+                sales: Number(salesAmount.toFixed(2)),
                 barPoint: barPoint
             });
         }

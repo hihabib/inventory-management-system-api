@@ -84,7 +84,6 @@ export class UserService {
       .leftJoin(roleTable, eq(userTable.roleId, roleTable.id))
       .leftJoin(maintainsTable, eq(userTable.maintainsId, maintainsTable.id))
       .where(eq(userTable.username, username)).limit(1);
-    console.log("user", user)
     if (!user || user.length === 0) {
       throw new AppError('Invalid username or password', 401);
     }

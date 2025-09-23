@@ -24,8 +24,8 @@ export class RoleController {
     })
 
     static updateRole = requestHandler(async (req: Request, res: Response) => {
-        const {name, description} = req.body as NewRole;
-        const updated = await RoleService.updateRole(req.params.id, {name, description});
+        const {name, description, defaultRoute} = req.body as NewRole;
+        const updated = await RoleService.updateRole(req.params.id, {name, description, defaultRoute});
         sendResponse(res, 200, 'Role updated successfully', updated);
     })
 

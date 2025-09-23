@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { and, eq, inArray, SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, SQL, sql, gte, lte } from 'drizzle-orm';
 import { alias, PgTable } from 'drizzle-orm/pg-core';
 import { db } from '../drizzle/db';
 import { Request } from 'express';
@@ -112,6 +112,52 @@ export async function filterWithPaginate<T extends PgTable>(
     // Process direct filters and relationship filters
     for (const [column, values] of Object.entries(filter)) {
         if (values.length === 0) continue;
+
+        // Handle date range filters (e.g., 'createdAt[from]', 'createdAt[to]')
+        if (column.includes('[') && column.includes(']')) {
+            const match = column.match(/^(.+)\[(from|to)\]$/);
+            if (match) {
+                const [, fieldName, rangeType] = match;
+                const dateValue = values[0]; // Should be ISO string
+                
+                if (fieldName.includes('.')) {
+                    // Relationship date filter (e.g., 'user.createdAt[from]')
+                    const [aliasName, columnName] = fieldName.split('.');
+                    const tableRef = tableRefs[aliasName];
+                    
+                    if (!tableRef) {
+                        console.warn(`Table reference not found for: ${aliasName}`);
+                        continue;
+                    }
+                    
+                    const tableColumn = tableRef[columnName as keyof typeof tableRef];
+                    if (!tableColumn) {
+                        console.warn(`Column not found: ${columnName} in table ${aliasName}`);
+                        continue;
+                    }
+                    
+                    if (rangeType === 'from') {
+                        whereConditions.push(gte(tableColumn, new Date(dateValue)));
+                    } else if (rangeType === 'to') {
+                        whereConditions.push(lte(tableColumn, new Date(dateValue)));
+                    }
+                } else {
+                    // Direct date filter (e.g., 'createdAt[from]')
+                    const tableColumn = table[fieldName as keyof typeof table];
+                    if (!tableColumn) {
+                        console.warn(`Column not found: ${fieldName} in the main table`);
+                        continue;
+                    }
+                    
+                    if (rangeType === 'from') {
+                        whereConditions.push(gte(tableColumn, new Date(dateValue)));
+                    } else if (rangeType === 'to') {
+                        whereConditions.push(lte(tableColumn, new Date(dateValue)));
+                    }
+                }
+                continue;
+            }
+        }
 
         if (column.includes('.')) {
             // Relationship filter (e.g., 'role.name')
