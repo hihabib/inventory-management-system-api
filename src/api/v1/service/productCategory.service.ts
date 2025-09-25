@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewProductCategory, productCategoryTable } from "../drizzle/schema/productCategory";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
 
 export class ProductCategoryService {
     static async createProductCategory(productCategoryData: NewProductCategory) {
@@ -42,7 +43,7 @@ export class ProductCategoryService {
             const [updated] = await tx.update(productCategoryTable)
                 .set({
                     ...productCategory,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(productCategoryTable.id, id))
                 .returning();

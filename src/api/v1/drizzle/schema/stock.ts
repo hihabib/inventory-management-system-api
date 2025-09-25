@@ -5,8 +5,8 @@ import { unitTable } from "./unit";
 
 export const stockTable = pgTable("stock", {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
     unitId: uuid('unit_id').references(() => unitTable.id).notNull(),
     productId: uuid('product_id').references(() => productTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),

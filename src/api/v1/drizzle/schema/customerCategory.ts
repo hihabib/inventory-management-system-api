@@ -8,8 +8,8 @@ export const discountTypeEnum = pgEnum("discount_type", [
 
 export const customerCategoryTable = pgTable('customer_category', {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     categoryName: varchar('name').notNull(),
     discountType: discountTypeEnum('discount_type').notNull().default("Fixed"),

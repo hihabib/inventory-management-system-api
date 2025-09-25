@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewMaintains, maintainsTable } from "../drizzle/schema/maintains";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
 
 export class MaintainsService {
     static async createMaintains(maintainsData: NewMaintains) {
@@ -21,7 +22,7 @@ export class MaintainsService {
             const [updated] = await tx.update(maintainsTable)
                 .set({
                     ...maintainsData,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(maintainsTable.id, id))
                 .returning();

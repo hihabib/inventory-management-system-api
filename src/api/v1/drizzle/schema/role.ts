@@ -5,8 +5,8 @@ export const roleTable = pgTable('roles', {
     name: varchar('name').notNull(),
     description: text('description').default(""),
     defaultRoute: varchar('default_route').notNull().default('/admin'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
 });
 
 export type RoleTable = typeof roleTable.$inferSelect;

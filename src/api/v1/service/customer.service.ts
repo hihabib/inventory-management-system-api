@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
-import { NewCustomer, customerTable } from "../drizzle/schema/customer";
+import { customerTable, NewCustomer } from "../drizzle/schema/customer";
 import { customerCategoryTable } from "../drizzle/schema/customerCategory";
-import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
 
 export class CustomerService {
     static async createCustomer(customerData: NewCustomer) {
@@ -57,7 +58,7 @@ export class CustomerService {
             const [updated] = await tx.update(customerTable)
                 .set({
                     ...customerData,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(customerTable.id, id))
                 .returning();

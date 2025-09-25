@@ -4,8 +4,8 @@ import { customerCategoryTable, discountTypeEnum } from "./customerCategory";
 
 export const customerTable = pgTable('customer', {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     categoryId: uuid('category_id').references(() => customerCategoryTable.id).default(null),
     name: varchar('name').notNull(),

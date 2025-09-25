@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
-import { NewCustomerCategory, customerCategoryTable } from "../drizzle/schema/customerCategory";
-import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { customerCategoryTable, NewCustomerCategory } from "../drizzle/schema/customerCategory";
+import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
 
 export class CustomerCategoryService {
     static async createCustomerCategory(customerCategoryData: NewCustomerCategory) {
@@ -21,7 +22,7 @@ export class CustomerCategoryService {
             const [updated] = await tx.update(customerCategoryTable)
                 .set({
                     ...customerCategoryData,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(customerCategoryTable.id, id))
                 .returning();

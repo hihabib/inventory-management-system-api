@@ -4,10 +4,29 @@ import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deli
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { StockService } from "./stock.service";
 import { NewStock } from "../drizzle/schema/stock";
+import { getCurrentDate } from "../utils/timezone";
 
 export class DeliveryHistoryService {
     static async createDeliveryHistory(deliveryHistoryData: NewDeliveryHistory[]) {
-        const createdDeliveryHistories = await db.insert(deliveryHistoryTable).values(deliveryHistoryData).returning();
+        // Apply decimal precision formatting to each delivery history item
+        const formattedData = deliveryHistoryData.map(item => {
+            const formatted = {
+                ...item,
+                pricePerQuantity: Number(item.pricePerQuantity.toFixed(2)),
+                ...(item.sentQuantity && { sentQuantity: Number(item.sentQuantity.toFixed(3)) }),
+                ...(item.receivedQuantity && { receivedQuantity: Number(item.receivedQuantity.toFixed(3)) }),
+                ...(item.orderedQuantity && { orderedQuantity: Number(item.orderedQuantity.toFixed(3)) })
+            };
+            
+            // Set sentAt to current time if status is "Order-Shipped"
+            if (item.status === 'Order-Shipped') {
+                formatted.sentAt = getCurrentDate()
+            }
+            
+            return formatted;
+        });
+        
+        const createdDeliveryHistories = await db.insert(deliveryHistoryTable).values(formattedData).returning();
         return createdDeliveryHistories;
     }
 
@@ -19,12 +38,24 @@ export class DeliveryHistoryService {
                 tx.rollback();
             }
 
+            // Apply decimal precision formatting
+            const formattedData = {
+                ...deliveryHistoryData,
+                ...(deliveryHistoryData.pricePerQuantity && { pricePerQuantity: Number(deliveryHistoryData.pricePerQuantity.toFixed(2)) }),
+                ...(deliveryHistoryData.sentQuantity && { sentQuantity: Number(deliveryHistoryData.sentQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.receivedQuantity && { receivedQuantity: Number(deliveryHistoryData.receivedQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.orderedQuantity && { orderedQuantity: Number(deliveryHistoryData.orderedQuantity.toFixed(3)) }),
+                updatedAt: getCurrentDate()
+            };
+            
+            // Set sentAt to current time if status is being updated to "Order-Shipped"
+            if (deliveryHistoryData.status === 'Order-Shipped') {
+                formattedData.sentAt = getCurrentDate();
+            }
+
             // Update the delivery history
             const [updated] = await tx.update(deliveryHistoryTable)
-                .set({
-                    ...deliveryHistoryData,
-                    updatedAt: new Date()
-                })
+                .set(formattedData)
                 .where(eq(deliveryHistoryTable.id, id))
                 .returning();
 
@@ -49,12 +80,24 @@ export class DeliveryHistoryService {
                     tx.rollback();
                 }
 
+                // Apply decimal precision formatting
+                const formattedUpdateData = {
+                    ...updateData,
+                    ...(updateData.pricePerQuantity && { pricePerQuantity: Number(updateData.pricePerQuantity.toFixed(2)) }),
+                    ...(updateData.sentQuantity && { sentQuantity: Number(updateData.sentQuantity.toFixed(3)) }),
+                    ...(updateData.receivedQuantity && { receivedQuantity: Number(updateData.receivedQuantity.toFixed(3)) }),
+                    ...(updateData.orderedQuantity && { orderedQuantity: Number(updateData.orderedQuantity.toFixed(3)) }),
+                    updatedAt: getCurrentDate()
+                };
+                
+                // Set sentAt to current time if status is being updated to "Order-Shipped"
+                if (updateData.status === 'Order-Shipped') {
+                    formattedUpdateData.sentAt = getCurrentDate();
+                }
+
                 // Update the delivery history
                 const [updated] = await tx.update(deliveryHistoryTable)
-                    .set({
-                        ...updateData,
-                        updatedAt: new Date()
-                    })
+                    .set(formattedUpdateData)
                     .where(eq(deliveryHistoryTable.id, id))
                     .returning();
 

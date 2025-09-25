@@ -1,4 +1,4 @@
-import { numeric, pgEnum, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
+import { numeric, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { maintainsTable } from "./maintains";
 import { productTable } from "./product";
 import { unitTable } from "./unit";
@@ -15,8 +15,8 @@ export const DeliveryStatus = pgEnum("delivery_status", [
 ])
 export const deliveryHistoryTable = pgTable("delivery_history", {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').notNull().defaultNow(),
-    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     status: DeliveryStatus('status').default("Order-Shipped"),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
@@ -25,7 +25,11 @@ export const deliveryHistoryTable = pgTable("delivery_history", {
     pricePerQuantity: numeric('price_per_quantity', { mode: 'number', scale: 2 }).notNull(),
     sentQuantity: numeric('sent_quantity', { mode: 'number', scale: 3 }).notNull(),
     receivedQuantity: numeric('received_quantity', { mode: 'number', scale: 3 }).notNull(),
-    orderedQuantity: numeric('ordered_quantity', { mode: 'number', scale: 3 }).notNull()
+    orderedQuantity: numeric('ordered_quantity', { mode: 'number', scale: 3 }).notNull(),
+    orderedUnit: varchar("ordered_unit").default(""),
+    orderNote: text("order_note").default(""),
+    neededAt: timestamp('needed_at', {withTimezone: true}),
+    sentAt: timestamp('sent_at', {withTimezone: true}),
 })
 
 export type DeliveryHistoryTable = typeof deliveryHistoryTable.$inferSelect;

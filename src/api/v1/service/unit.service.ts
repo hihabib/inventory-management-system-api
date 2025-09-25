@@ -1,7 +1,8 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewUnit, unitTable } from "../drizzle/schema/unit";
-import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
 
 export class UnitService {
     static async createUnit(unit: NewUnit) {
@@ -23,7 +24,7 @@ export class UnitService {
             const [updated] = await tx.update(unitTable)
                 .set({
                     ...unit,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(unitTable.id, id))
                 .returning();

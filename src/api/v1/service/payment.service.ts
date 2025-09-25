@@ -72,7 +72,7 @@ export class PaymentService {
                     createdBy: row.createdBy,
                     maintainsId: row.maintainsId,
                     payments: row.payments,
-                    totalAmount: row.totalAmount,
+                    totalAmount: Number(row.totalAmount.toFixed(2)),
                     customerDueId: row.customerDueId,
                     sales: []
                 });
@@ -93,9 +93,9 @@ export class PaymentService {
                     discountType: row.discountType,
                     discountAmount: row.discountAmount,
                     discountNote: row.discountNote,
-                    saleQuantity: row.saleQuantity,
-                    saleAmount: row.saleAmount,
-                    pricePerUnit: row.pricePerUnit,
+                    saleQuantity: Number(row.saleQuantity.toFixed(3)),
+                    saleAmount: Number(row.saleAmount.toFixed(2)),
+                    pricePerUnit: Number(row.pricePerUnit.toFixed(2)),
                     unit: row.unit
                 });
             }
@@ -109,6 +109,12 @@ export class PaymentService {
 
     static async getPaymentById(id: number) {
         const [payment] = await db.select().from(paymentTable).where(eq(paymentTable.id, id));
+        if (payment) {
+            return {
+                ...payment,
+                totalAmount: Number(payment.totalAmount.toFixed(2))
+            };
+        }
         return payment;
     }
 }

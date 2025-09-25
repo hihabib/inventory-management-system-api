@@ -8,8 +8,8 @@ export type PaymentMethod = "bkash" | "nogod" | "cash" | "due" | "card" | "sendF
 
 export const paymentTable = pgTable('payment', {
     id: integer('id').primaryKey().generatedAlwaysAsIdentity({ startWith: 100 }),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     payments: jsonb().$type<Record<keyof PaymentMethod, number>>().notNull(),

@@ -5,8 +5,8 @@ import { maintainsTable } from "./maintains";
 
 export const customerDueTable = pgTable('customer_due', {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     customerId: uuid('customer_id').references(() => customerTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),

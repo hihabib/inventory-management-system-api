@@ -9,6 +9,8 @@ import { unitTable } from "../drizzle/schema/unit";
 import { stockTable } from "../drizzle/schema/stock";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { productCategoryTable } from '../drizzle/schema/productCategory';
+import { getCurrentDate } from '../utils/timezone';
+
 
 export class ProductService {
     static async createProduct({ categoriesId, unitsId, ...product }: NewProduct & { unitsId: string[], categoriesId: string[] }) {
@@ -50,7 +52,7 @@ export class ProductService {
             const [updatedProduct] = await tx.update(productTable)
                 .set({
                     ...product,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(productTable.id, productId))
                 .returning();
@@ -211,7 +213,7 @@ export class ProductService {
             .from(unitInProductTable)
             .innerJoin(unitTable, eq(unitInProductTable.unitId, unitTable.id))
             .where(eq(unitInProductTable.productId, id));
-        
+
         // Step 3: Get stock information for this product
         const stockInfo = await db
             .select({
@@ -245,7 +247,7 @@ export class ProductService {
 
         // Step 5: Process and combine results
         const productDetail = product[0];
-        
+
         // Group by maintain name
         const stockByMaintain = {};
         stockInfo.forEach(stock => {
@@ -294,7 +296,7 @@ export class ProductService {
         filter?: FilterOptions
     ) {
         // Step 1: Get products with main unit
-        
+
         const productsResult = await filterWithPaginate(productTable, {
             pagination,
             filter: {
@@ -333,10 +335,10 @@ export class ProductService {
                 }
             },
             groupBy: [
-                productTable.id, 
-                productTable.name, 
-                productTable.bengaliName, 
-                productTable.lowStockThreshold, 
+                productTable.id,
+                productTable.name,
+                productTable.bengaliName,
+                productTable.lowStockThreshold,
                 productTable.sku,
                 unitTable.id,
                 unitTable.name,
@@ -417,7 +419,7 @@ export class ProductService {
             const productCategories = categoryInfo
                 .filter(c => c.productId === product.id)
                 .map(c => ({ id: c.categoryId, name: c.categoryName, description: c.description, parentId: c.parentId, createdAt: c.createdAt, updatedAt: c.updatedAt }));
-                
+
             // Get all units for this product
             const productUnits = allUnits
                 .filter(u => u.productId === product.id)

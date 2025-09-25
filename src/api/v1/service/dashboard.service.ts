@@ -1,10 +1,11 @@
-import { eq, and, gte, lte, desc, sql, count, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql, sum } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
-import { saleTable } from "../drizzle/schema/sale";
 import { productTable } from "../drizzle/schema/product";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
+import { saleTable } from "../drizzle/schema/sale";
+import { getCurrentDate } from "../utils/timezone";
 
 interface WeeklySalesData {
     day: string;
@@ -31,7 +32,7 @@ interface DashboardData {
 export class DashboardService {
     static async getDashboardData(): Promise<DashboardData> {
         // Get current month start and end dates
-        const now = new Date();
+        const now = getCurrentDate();
         const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
@@ -78,7 +79,7 @@ export class DashboardService {
     }
 
     private static async getWeeklySalesData(): Promise<WeeklySalesData[]> {
-        const today = new Date();
+        const today = getCurrentDate();
         const sevenDaysAgo = new Date(today);
         sevenDaysAgo.setDate(today.getDate() - 6);
         

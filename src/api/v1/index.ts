@@ -3,6 +3,7 @@ import router from './routes/index';
 import { errorHandler } from './middleware/errorHandler';
 import cors from 'cors'
 
+
 const app = express();
 
 app.use(express.json())

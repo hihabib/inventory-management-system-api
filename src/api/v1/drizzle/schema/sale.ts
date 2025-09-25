@@ -7,8 +7,8 @@ import { productTable } from "./product";
 
 export const saleTable = pgTable('sale', {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     customerCategoryId: uuid('customer_category_id').references(() => customerCategoryTable.id).default(null),

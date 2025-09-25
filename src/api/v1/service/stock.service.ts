@@ -1,11 +1,12 @@
-import { eq, and, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../drizzle/db";
+import { maintainsTable } from "../drizzle/schema/maintains";
+import { productTable } from "../drizzle/schema/product";
 import { NewStock, stockTable } from "../drizzle/schema/stock";
+import { unitTable } from "../drizzle/schema/unit";
 import { unitInProductTable } from "../drizzle/schema/unitInProduct";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
-import { unitTable } from "../drizzle/schema/unit";
-import { productTable } from "../drizzle/schema/product";
-import { maintainsTable } from "../drizzle/schema/maintains";
+import { getCurrentDate } from "../utils/timezone";
 
 
 export class StockService {
@@ -26,9 +27,15 @@ export class StockService {
             if (existingProductUnit.length === 0) {
                 tx.rollback();
             }
-            const [insertedStock] = await tx.insert(stockTable).values({
+            
+            // Apply decimal precision formatting
+            const formattedStock = {
                 ...stock,
-            }).returning();
+                pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
+                quantity: Number(stock.quantity.toFixed(3))
+            };
+            
+            const [insertedStock] = await tx.insert(stockTable).values(formattedStock).returning();
             return {
                 ...insertedStock
             }
@@ -53,9 +60,9 @@ export class StockService {
                 if (existingStock.length > 0) {
                     const [updated] = await tx.update(stockTable)
                         .set({
-                            pricePerQuantity: stock.pricePerQuantity,
-                            quantity: stock.quantity,
-                            updatedAt: new Date()
+                            pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
+                            quantity: Number(stock.quantity.toFixed(3)),
+                            updatedAt: getCurrentDate()
                         })
                         .where(eq(stockTable.id, existingStock[0].id))
                         .returning();
@@ -87,6 +94,8 @@ export class StockService {
                     
                     const [inserted] = await tx.insert(stockTable).values({
                         ...stock,
+                        pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
+                        quantity: Number(stock.quantity.toFixed(3))
                     }).returning();
                     
                     results.push({
@@ -122,12 +131,12 @@ export class StockService {
             if (existingStock.length > 0) {
                 const currentQuantity = parseFloat(existingStock[0].quantity.toString());
                 const addQuantity = parseFloat(stock.quantity.toString());
-                const newQuantity = currentQuantity + addQuantity;
+                const newQuantity = Number((currentQuantity + addQuantity).toFixed(3));
                 
                 const [updated] = await tx.update(stockTable)
                     .set({
                         quantity: newQuantity,
-                        updatedAt: new Date()
+                        updatedAt: getCurrentDate()
                     })
                     .where(eq(stockTable.id, existingStock[0].id))
                     .returning();
@@ -163,6 +172,8 @@ export class StockService {
                 
                 const [inserted] = await tx.insert(stockTable).values({
                     ...stock,
+                    pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
+                    quantity: Number(stock.quantity.toFixed(3))
                 }).returning();
                 
                 results.push({
@@ -203,7 +214,7 @@ export class StockService {
             }
 
             // Check if primary stock has sufficient quantity
-            const newPrimaryQuantity = primaryStockRecord.quantity - stockReduction.quantity;
+            const newPrimaryQuantity = Number((primaryStockRecord.quantity - stockReduction.quantity).toFixed(3));
             if (newPrimaryQuantity < 0) {
                 throw new Error(`Insufficient stock for reduction. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
             }
@@ -224,7 +235,7 @@ export class StockService {
                 .update(stockTable)
                 .set({
                     quantity: newPrimaryQuantity,
-                    updatedAt: new Date()
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(stockTable.id, primaryStockRecord.id))
                 .returning();
@@ -243,7 +254,7 @@ export class StockService {
             for (const relatedStock of otherStockRecords) {
                 // Calculate proportional reduction: (relatedStock.quantity / primaryStockRecord.quantity) * reductionQuantity
                 const proportionalReduction = (relatedStock.quantity / primaryStockRecord.quantity) * stockReduction.quantity;
-                const newRelatedQuantity = relatedStock.quantity - proportionalReduction;
+                const newRelatedQuantity = Number((relatedStock.quantity - proportionalReduction).toFixed(3));
                 
                 if (newRelatedQuantity < 0) {
                     throw new Error(`Insufficient stock in related record for proportional reduction. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);
@@ -253,7 +264,7 @@ export class StockService {
                     .update(stockTable)
                     .set({
                         quantity: newRelatedQuantity,
-                        updatedAt: new Date()
+                        updatedAt: getCurrentDate()
                     })
                     .where(eq(stockTable.id, relatedStock.id))
                     .returning();
@@ -294,7 +305,9 @@ export class StockService {
             const [updated] = await tx.update(stockTable)
                 .set({
                     ...stock,
-                    updatedAt: new Date()
+                    ...(stock.pricePerQuantity && { pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)) }),
+                    ...(stock.quantity && { quantity: Number(stock.quantity.toFixed(3)) }),
+                    updatedAt: getCurrentDate()
                 })
                 .where(eq(stockTable.id, id))
                 .returning();

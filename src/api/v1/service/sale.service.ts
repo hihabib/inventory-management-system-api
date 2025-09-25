@@ -7,6 +7,7 @@ import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { stockTable } from "../drizzle/schema/stock";
 import { unitTable } from "../drizzle/schema/unit";
 import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
+import { getCurrentDate } from "../utils/timezone";
 
 interface ProductItem {
     productName: string;
@@ -64,6 +65,11 @@ export class SaleService {
                             (product.quantity * product.price * product.discount / 100);
                     }
 
+                    // Apply decimal precision formatting
+                    const formattedSaleQuantity = Number(product.quantity.toFixed(3));
+                    const formattedSaleAmount = Number(saleAmount.toFixed(2));
+                    const formattedPricePerUnit = Number(product.price.toFixed(2));
+
                     // Create sale record
                     const [sale] = await tx.insert(saleTable).values({
                         createdBy: userId,
@@ -75,9 +81,9 @@ export class SaleService {
                         discountType: product.discountType,
                         discountAmount: product.discount,
                         discountNote: product.discountNote,
-                        saleQuantity: product.quantity,
-                        saleAmount: saleAmount,
-                        pricePerUnit: product.price,
+                        saleQuantity: formattedSaleQuantity,
+                        saleAmount: formattedSaleAmount,
+                        pricePerUnit: formattedPricePerUnit,
                         unit: product.unit
                     }).returning();
 
@@ -125,7 +131,7 @@ export class SaleService {
                                 .update(stockTable)
                                 .set({
                                     quantity: newQuantity,
-                                    updatedAt: new Date()
+                                    updatedAt: getCurrentDate()
                                 })
                                 .where(eq(stockTable.id, relatedStock.id));
                         } else {
@@ -142,7 +148,7 @@ export class SaleService {
                                 .update(stockTable)
                                 .set({
                                     quantity: newRelatedQuantity,
-                                    updatedAt: new Date()
+                                    updatedAt: getCurrentDate()
                                 })
                                 .where(eq(stockTable.id, relatedStock.id));
                         }
@@ -185,7 +191,7 @@ export class SaleService {
                 const [payment] = await tx.insert(paymentTable).values({
                     maintainsId: saleData.maintainsId,
                     payments: paymentMethods as any,
-                    totalAmount: saleData.totalPriceWithDiscount,
+                    totalAmount: Number(saleData.totalPriceWithDiscount.toFixed(2)),
                     customerDueId: customerDueId,
                     createdBy: userId
                 }).returning();

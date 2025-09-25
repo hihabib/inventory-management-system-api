@@ -15,8 +15,8 @@ export const transactionStatusEnum = pgEnum("transaction_status", [
 
 export const innerTransactionTable = pgTable('inner_transaction', {
     id: uuid('id').defaultRandom().primaryKey(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     transactionType: transactionTypeEnum('transaction_type').default("Order").notNull(),
     status: transactionStatusEnum('status').notNull().default("Pending")

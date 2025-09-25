@@ -10,8 +10,8 @@ export const userTable = pgTable('users', {
   fullName: varchar('full_name').notNull(),
   roleId: uuid('role_id').references(() => roleTable.id).notNull(),
   maintainsId: uuid('maintains_id').references(() => maintainsTable.id),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
 });
 
 export type UserTable = typeof userTable.$inferSelect;
