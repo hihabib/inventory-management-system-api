@@ -9,7 +9,7 @@ import { getFilterAndPaginationFromRequest } from '../utils/filterWithPaginate';
 export class UserController {
   // Register a new user
   static register = requestHandler(async (req: AuthRequest, res: Response) => {
-    const { username, password, email, fullName, roleId } = req.body as NewUser;
+    const { username, password, email, fullName, roleId, maintainsId } = req.body as NewUser;
 
     // Check if user already exists
     const existingUser = await UserService.findByUsername(username) ||
@@ -26,6 +26,7 @@ export class UserController {
       email,
       fullName,
       roleId,
+      maintainsId,
     });
 
     sendResponse(res, 201, 'User created successfully', newUser);

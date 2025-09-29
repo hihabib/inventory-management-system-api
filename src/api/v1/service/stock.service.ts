@@ -216,7 +216,7 @@ export class StockService {
             // Check if primary stock has sufficient quantity
             const newPrimaryQuantity = Number((primaryStockRecord.quantity - stockReduction.quantity).toFixed(3));
             if (newPrimaryQuantity < 0) {
-                throw new Error(`Insufficient stock for reduction. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
+                throw new Error(`Insufficient stock. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
             }
 
             // Find all other stock records with same maintainsId and productId but different unitId

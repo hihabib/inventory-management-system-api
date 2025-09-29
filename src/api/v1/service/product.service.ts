@@ -352,6 +352,7 @@ export class ProductService {
         const productIds = productsResult.list.map(p => p.id);
         const stockInfo = await db
             .select({
+                createdAt: stockTable.createdAt,
                 productId: stockTable.productId,
                 unitId: stockTable.unitId,
                 unitName: unitTable.name,
@@ -406,6 +407,7 @@ export class ProductService {
                     stockByMaintain[stock.maintainsName] = [];
                 }
                 stockByMaintain[stock.maintainsName].push({
+                    createdAt: stock.createdAt,
                     maintainsId: stock.maintainsId,
                     unitId: stock.unitId,
                     maintainsName: stock.maintainsName,
