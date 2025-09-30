@@ -18,20 +18,21 @@ export class DeliveryHistoryController {
             if (!item.status || !item.unitId || !item.productId || !item.maintainsId) {
                 return sendResponse(res, 400, 'Status, unit id, product id, and maintains id are required', null);
             }
-            // Check if status is valid
-            if (item.status !== "Order-Placed" && item.status !== "Order-Shipped" && item.status !== "Return-Placed") {
-                return sendResponse(res, 400, 'Status must be Order-Placed, Order-Shipped, or Return-Placed', null);
-            }
+            
 
-            // Check if ordered quantity and unit are provided for Order-Placed status
+            // Check if ordered quantity and ordered unit are provided for Order-Placed status
             if ((item.status === "Order-Placed" && !item.orderedQuantity)
                 || (item.status === "Order-Placed" && !item.orderedUnit)) {
-                return sendResponse(res, 400, 'Ordered quantity, unit, and date are required for Order-Placed status', null);
+                return sendResponse(res, 400, 'Ordered quantity and ordered unit are required for Order-Placed status', null);
             }
 
-            // Check if sent quantity and unit id are provided for Order-Shipped status
+            // Check if sent quantity is provided for Order-Shipped status
             if ((item.status === "Order-Shipped" && !item.sentQuantity)) {
-                return sendResponse(res, 400, 'Sent quantity and unit id are required for Order-Shipped status', null);
+                return sendResponse(res, 400, 'Sent quantity is required for Order-Shipped status', null);
+            }
+            // Check if sent quantity and received quantity are provided for Order-Completed status
+            if ((item.status === "Order-Completed" && !item.sentQuantity && !item.receivedQuantity)) {
+                return sendResponse(res, 400, 'Sent quantity and received quantity are required for Order-Completed status', null);
             }
 
             // Check if return quantity is provided for Return-Placed status

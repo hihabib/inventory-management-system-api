@@ -9,36 +9,95 @@ import { productTable } from "../drizzle/schema/product";
 
 export class DeliveryHistoryService {
     static async createDeliveryHistory(deliveryHistoryData: NewDeliveryHistory[]) {
-        // Apply decimal precision formatting to each delivery history item
-        const formattedData = deliveryHistoryData.map(item => {
-            const formatted = {
-                ...item,
-                pricePerQuantity: Number(item.pricePerQuantity.toFixed(2)),
-                ...(item.neededAt && { neededAt: new Date(item.neededAt) }),
-                ...(item.sentQuantity && { sentQuantity: Number(item.sentQuantity.toFixed(3)) }),
-                ...(item.receivedQuantity && { receivedQuantity: Number(item.receivedQuantity.toFixed(3)) }),
-                ...(item.orderedQuantity && { orderedQuantity: Number(item.orderedQuantity.toFixed(3)) })
-            };
+        return await db.transaction(async (tx) => {
+            const stocksToAdd: NewStock[] = [];
+            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number }> = [];
 
-            // Set  current time according to status 
-             if (item.status === "Order-Placed") {
+            // Apply decimal precision formatting to each delivery history item
+            const formattedData = deliveryHistoryData.map(item => {
+                const formatted = {
+                    ...item,
+                    pricePerQuantity: Number(item.pricePerQuantity.toFixed(2)),
+                    ...(item.neededAt && { neededAt: new Date(item.neededAt) }),
+                    ...(item.sentQuantity && { sentQuantity: Number(item.sentQuantity.toFixed(3)) }),
+                    ...(item.receivedQuantity && { receivedQuantity: Number(item.receivedQuantity.toFixed(3)) }),
+                    ...(item.orderedQuantity && { orderedQuantity: Number(item.orderedQuantity.toFixed(3)) })
+                };
+
+                // Set current time according to status 
+                if (item.status === "Order-Placed") {
                     formatted.orderedAt = getCurrentDate();
                     formatted.cancelledAt = null;
                 } else if (item.status === 'Order-Shipped' || item.status === "Return-Placed") {
                     formatted.sentAt = getCurrentDate();
                     formatted.cancelledAt = null;
                 } else if (item.status === "Order-Completed" || item.status === "Return-Completed") {
-                    formatted.receivedAt = getCurrentDate();
+                    // Use same timestamp for both receivedAt and sentAt
+                    const currentTime = getCurrentDate();
+                    formatted.receivedAt = currentTime;
+                    formatted.sentAt = currentTime;
                     formatted.cancelledAt = null;
                 } else if(item.status === "Order-Cancelled") {
                     formatted.cancelledAt = getCurrentDate();
                 }
 
-            return formatted;
-        });
+                return formatted;
+            });
 
-        const createdDeliveryHistories = await db.insert(deliveryHistoryTable).values(formattedData).returning();
-        return createdDeliveryHistories;
+            const createdDeliveryHistories = await tx.insert(deliveryHistoryTable).values(formattedData).returning();
+
+            // Process stock management for each created delivery history
+            for (const created of createdDeliveryHistories) {
+                // If status is 'Order-Completed', prepare stock data to add
+                if (created.status === 'Order-Completed') {
+                    const stockData: NewStock = {
+                        maintainsId: created.maintainsId,
+                        productId: created.productId,
+                        unitId: created.unitId,
+                        pricePerQuantity: created.pricePerQuantity,
+                        quantity: created.receivedQuantity
+                    };
+                    stocksToAdd.push(stockData);
+                }
+
+                // If status is 'Return-Completed', prepare stock data to reduce
+                if (created.status === 'Return-Completed') {
+                    const stockReduction = {
+                        maintainsId: created.maintainsId,
+                        productId: created.productId,
+                        unitId: created.unitId,
+                        quantity: created.receivedQuantity
+                    };
+                    stocksToReduce.push(stockReduction);
+                }
+            }
+
+            // If there are stocks to add, call bulkCreateOrAddStockWithTx
+            if (stocksToAdd.length > 0) {
+                try {
+                    console.log("stocks are adding", stocksToAdd);
+                    await StockService.bulkCreateOrAddStockWithTx(stocksToAdd, tx);
+                } catch (error) {
+                    // If stock creation fails, rollback the entire transaction
+                    tx.rollback();
+                    throw error;
+                }
+            }
+
+            // If there are stocks to reduce, call bulkReduceStockWithTx
+            if (stocksToReduce.length > 0) {
+                try {
+                    console.log("stocks are reducing", stocksToReduce);
+                    await StockService.bulkReduceStockWithTx(stocksToReduce, tx);
+                } catch (error) {
+                    // If stock reduction fails, rollback the entire transaction
+                    tx.rollback();
+                    throw error;
+                }
+            }
+
+            return createdDeliveryHistories;
+        });
     }
 
     static async updateDeliveryHistory(id: string, deliveryHistoryData: Partial<NewDeliveryHistory>) {
@@ -52,10 +111,10 @@ export class DeliveryHistoryService {
             // Apply decimal precision formatting
             const formattedData = {
                 ...deliveryHistoryData,
-                ...(deliveryHistoryData.pricePerQuantity && { pricePerQuantity: Number(deliveryHistoryData.pricePerQuantity.toFixed(2)) }),
-                ...(deliveryHistoryData.sentQuantity && { sentQuantity: Number(deliveryHistoryData.sentQuantity.toFixed(3)) }),
-                ...(deliveryHistoryData.receivedQuantity && { receivedQuantity: Number(deliveryHistoryData.receivedQuantity.toFixed(3)) }),
-                ...(deliveryHistoryData.orderedQuantity && { orderedQuantity: Number(deliveryHistoryData.orderedQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.pricePerQuantity && { pricePerQuantity: parseFloat(deliveryHistoryData.pricePerQuantity.toFixed(2)) }),
+                ...(deliveryHistoryData.sentQuantity && { sentQuantity: parseFloat(deliveryHistoryData.sentQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.receivedQuantity && { receivedQuantity: parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.orderedQuantity && { orderedQuantity: parseFloat(deliveryHistoryData.orderedQuantity.toFixed(3)) }),
                 updatedAt: getCurrentDate()
             };
 
