@@ -31,7 +31,7 @@ export class DeliveryHistoryController {
 
             // Check if sent quantity and unit id are provided for Order-Shipped status
             if ((item.status === "Order-Shipped" && !item.sentQuantity)) {
-                return sendResponse(res, 400, 'Sent quantity, unit id, and sent date are required for Order-Shipped status', null);
+                return sendResponse(res, 400, 'Sent quantity and unit id are required for Order-Shipped status', null);
             }
 
             // Check if return quantity is provided for Return-Placed status

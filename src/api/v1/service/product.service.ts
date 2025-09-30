@@ -295,13 +295,30 @@ export class ProductService {
         pagination: PaginationOptions = {},
         filter?: FilterOptions
     ) {
-        // Step 1: Get products with main unit
+        // Handle hierarchical category filtering
+        let modifiedFilter = { ...filter };
+        
+        if (filter && filter['productCategory.id']) {
+            const categoryIds = Array.isArray(filter['productCategory.id']) 
+                ? filter['productCategory.id'] 
+                : [filter['productCategory.id']];
+            
+            // Get all child categories for each provided category ID
+            const allCategoryIds = new Set(categoryIds);
+            
+            for (const categoryId of categoryIds) {
+                const childCategories = await this.getAllChildCategories(categoryId);
+                childCategories.forEach(id => allCategoryIds.add(id));
+            }
+            
+            // Update the filter to include all category IDs (parent + children)
+            modifiedFilter['productCategory.id'] = Array.from(allCategoryIds);
+        }
 
+        // Step 1: Get products with main unit
         const productsResult = await filterWithPaginate(productTable, {
             pagination,
-            filter: {
-                ...filter,
-            },
+            filter: modifiedFilter,
             orderBy: asc(productTable.sku),
             joins: [
                 {
@@ -318,6 +335,16 @@ export class ProductService {
                     table: maintainsTable,
                     alias: 'maintains',
                     condition: eq(stockTable.maintainsId, maintainsTable.id)
+                },
+                {
+                    table: productCategoryInProductTable,
+                    alias: 'productCategoryInProduct',
+                    condition: eq(productCategoryInProductTable.productId, productTable.id)
+                },
+                {
+                    table: productCategoryTable,
+                    alias: 'productCategory',
+                    condition: eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id)
                 }
             ],
             select: {
@@ -344,7 +371,15 @@ export class ProductService {
                 unitTable.name,
                 unitTable.description,
                 unitTable.createdAt,
-                unitTable.updatedAt
+                unitTable.updatedAt,
+                productCategoryInProductTable.productId,
+                productCategoryInProductTable.productCategoryId,
+                productCategoryTable.id,
+                productCategoryTable.name,
+                productCategoryTable.description,
+                productCategoryTable.parentId,
+                productCategoryTable.createdAt,
+                productCategoryTable.updatedAt
             ]
         });
 
@@ -413,7 +448,7 @@ export class ProductService {
                     maintainsId: stock.maintainsId,
                     unitId: stock.unitId,
                     maintainsName: stock.maintainsName,
-                    quantity: stock.quantity,
+                    quantity: parseFloat(stock.quantity.toFixed(3)),
                     unitName: stock.unitName,
                     pricePerQuantity: stock.pricePerQuantity
                 });
@@ -441,5 +476,28 @@ export class ProductService {
             list: productsWithStock,
             pagination: productsResult.pagination
         };
+    }
+
+    /**
+     * Recursively get all child category IDs for a given parent category ID
+     * @param parentCategoryId - The parent category ID
+     * @returns Array of child category IDs
+     */
+    private static async getAllChildCategories(parentCategoryId: string): Promise<string[]> {
+        const childCategories = await db
+            .select({ id: productCategoryTable.id })
+            .from(productCategoryTable)
+            .where(eq(productCategoryTable.parentId, parentCategoryId));
+
+        const childIds: string[] = [];
+        
+        for (const child of childCategories) {
+            childIds.push(child.id);
+            // Recursively get children of this child
+            const grandChildren = await this.getAllChildCategories(child.id);
+            childIds.push(...grandChildren);
+        }
+
+        return childIds;
     }
 }
