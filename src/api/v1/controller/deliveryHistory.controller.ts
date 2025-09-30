@@ -9,49 +9,76 @@ import { sendResponse } from "../utils/response";
 export class DeliveryHistoryController {
     static createDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const deliveryHistoryData = req.body as NewDeliveryHistory[];
-        
+
+
         // Add createdBy to each item from authenticated user
-        const dataWithCreatedBy = deliveryHistoryData.map(item => ({
-            ...item,
-            createdBy: req.user.id,
-            status: item.status || "Order-Shipped" // Default status if not provided
-        }));
-        
+        const dataWithCreatedBy: NewDeliveryHistory[] = [];
+        for (const item of deliveryHistoryData) {
+            // Check if status, unit id, product id, and maintains id are provided
+            if (!item.status || !item.unitId || !item.productId || !item.maintainsId) {
+                return sendResponse(res, 400, 'Status, unit id, product id, and maintains id are required', null);
+            }
+            // Check if status is valid
+            if (item.status !== "Order-Placed" && item.status !== "Order-Shipped" && item.status !== "Return-Placed") {
+                return sendResponse(res, 400, 'Status must be Order-Placed, Order-Shipped, or Return-Placed', null);
+            }
+
+            // Check if ordered quantity and unit are provided for Order-Placed status
+            if ((item.status === "Order-Placed" && !item.orderedQuantity)
+                || (item.status === "Order-Placed" && !item.orderedUnit)) {
+                return sendResponse(res, 400, 'Ordered quantity, unit, and date are required for Order-Placed status', null);
+            }
+
+            // Check if sent quantity and unit id are provided for Order-Shipped status
+            if ((item.status === "Order-Shipped" && !item.sentQuantity)) {
+                return sendResponse(res, 400, 'Sent quantity, unit id, and sent date are required for Order-Shipped status', null);
+            }
+
+            // Check if return quantity is provided for Return-Placed status
+            if ((item.status === "Return-Placed" && !item.sentQuantity)) {
+                return sendResponse(res, 400, 'Return quantity, and sent date are required for Return-Placed status', null);
+            }
+
+            dataWithCreatedBy.push({
+                ...item,
+                createdBy: req.user.id,
+            });
+        }
         const createdDeliveryHistories = await DeliveryHistoryService.createDeliveryHistory(dataWithCreatedBy);
-        sendResponse(res, 201, 'Delivery histories created successfully', createdDeliveryHistories);
+        sendResponse(res, 201, 'Transaction created successfully', createdDeliveryHistories);
     })
 
     static updateDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const deliveryHistoryData = req.body as Partial<NewDeliveryHistory>;
         const updatedDeliveryHistory = await DeliveryHistoryService.updateDeliveryHistory(id, deliveryHistoryData);
-        sendResponse(res, 200, 'Delivery history updated successfully', updatedDeliveryHistory);
+        sendResponse(res, 200, 'Transaction updated successfully', updatedDeliveryHistory);
     })
 
     static bulkUpdateDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const deliveryHistoryData = req.body as Array<{ id: string } & Partial<NewDeliveryHistory>>;
         const updatedDeliveryHistories = await DeliveryHistoryService.bulkUpdateDeliveryHistory(deliveryHistoryData);
-        sendResponse(res, 200, 'Delivery histories updated successfully', updatedDeliveryHistories);
+        sendResponse(res, 200, 'Transactions updated successfully', updatedDeliveryHistories);
     })
 
     static deleteDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const deletedDeliveryHistory = await DeliveryHistoryService.deleteDeliveryHistory(id);
-        sendResponse(res, 200, 'Delivery history deleted successfully', deletedDeliveryHistory);
+        sendResponse(res, 200, 'Transaction deleted successfully', deletedDeliveryHistory);
     })
 
     static getDeliveryHistories = requestHandler(async (req: AuthRequest, res: Response) => {
         const { pagination, filter } = getFilterAndPaginationFromRequest(req);
         const deliveryHistories = await DeliveryHistoryService.getDeliveryHistories(pagination, filter);
-        sendResponse(res, 200, 'Delivery histories fetched successfully', deliveryHistories);
+        sendResponse(res, 200, 'Transactions fetched successfully', deliveryHistories);
     })
 
     static getDeliveryHistoryById = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const deliveryHistory = await DeliveryHistoryService.getDeliveryHistoryById(id);
         if (!deliveryHistory) {
-            return sendResponse(res, 404, 'Delivery history not found', null);
+            return sendResponse(res, 404, 'Transaction not found', null);
         }
-        sendResponse(res, 200, 'Delivery history fetched successfully', deliveryHistory);
+        sendResponse(res, 200, 'Transaction fetched successfully', deliveryHistory);
     })
 }

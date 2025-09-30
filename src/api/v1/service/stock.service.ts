@@ -214,7 +214,7 @@ export class StockService {
             }
 
             // Check if primary stock has sufficient quantity
-            const newPrimaryQuantity = Number((primaryStockRecord.quantity - stockReduction.quantity).toFixed(3));
+            const newPrimaryQuantity = parseFloat((primaryStockRecord.quantity - stockReduction.quantity).toFixed(3));
             if (newPrimaryQuantity < 0) {
                 throw new Error(`Insufficient stock. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
             }
@@ -254,7 +254,7 @@ export class StockService {
             for (const relatedStock of otherStockRecords) {
                 // Calculate proportional reduction: (relatedStock.quantity / primaryStockRecord.quantity) * reductionQuantity
                 const proportionalReduction = (relatedStock.quantity / primaryStockRecord.quantity) * stockReduction.quantity;
-                const newRelatedQuantity = Number((relatedStock.quantity - proportionalReduction).toFixed(3));
+                const newRelatedQuantity = parseFloat((relatedStock.quantity - proportionalReduction).toFixed(3));
                 
                 if (newRelatedQuantity < 0) {
                     throw new Error(`Insufficient stock in related record for proportional reduction. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);

@@ -302,7 +302,7 @@ export class ProductService {
             filter: {
                 ...filter,
             },
-            orderBy: asc(productTable.name),
+            orderBy: asc(productTable.sku),
             joins: [
                 {
                     table: unitTable,
@@ -352,6 +352,7 @@ export class ProductService {
         const productIds = productsResult.list.map(p => p.id);
         const stockInfo = await db
             .select({
+                id: stockTable.id,
                 createdAt: stockTable.createdAt,
                 productId: stockTable.productId,
                 unitId: stockTable.unitId,
@@ -407,6 +408,7 @@ export class ProductService {
                     stockByMaintain[stock.maintainsName] = [];
                 }
                 stockByMaintain[stock.maintainsName].push({
+                    id: stock.id,
                     createdAt: stock.createdAt,
                     maintainsId: stock.maintainsId,
                     unitId: stock.unitId,

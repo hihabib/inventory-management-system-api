@@ -5,6 +5,7 @@ import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/f
 import { StockService } from "./stock.service";
 import { NewStock } from "../drizzle/schema/stock";
 import { getCurrentDate } from "../utils/timezone";
+import { productTable } from "../drizzle/schema/product";
 
 export class DeliveryHistoryService {
     static async createDeliveryHistory(deliveryHistoryData: NewDeliveryHistory[]) {
@@ -248,7 +249,16 @@ export class DeliveryHistoryService {
         return await filterWithPaginate(deliveryHistoryTable, {
             pagination,
             filter,
-            orderBy: desc(deliveryHistoryTable.id)
+            joins: [
+                {
+                    table: productTable,
+                    type: "right",
+                    alias: "product",
+                    condition: eq(deliveryHistoryTable.productId, productTable.id)
+                }
+            ],
+            select: {...deliveryHistoryTable},
+            orderBy: desc(productTable.sku)
         });
     }
 
