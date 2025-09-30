@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
@@ -317,7 +317,7 @@ export class DeliveryHistoryService {
                 }
             ],
             select: {...deliveryHistoryTable},
-            orderBy: desc(productTable.sku)
+            orderBy: asc(productTable.sku)
         });
     }
 
