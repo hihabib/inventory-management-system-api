@@ -319,18 +319,18 @@ export class DeliveryHistoryService {
         filter: FilterOptions = {}
     ) {
         // filter with createdAt current date if no date filter is selected
-        if (!filter?.['orderedAt[from]']
-            && !filter?.['sentAt[from]']
-            && !filter?.['receivedAt[from]']
-            && !filter?.['cancelledAt[from]']
-            && !filter?.['neededAt[from]']) {
-            const date = new Date();
-            const fromDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-            const toDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-            filter['createdAt[from]'] = [fromDate.toISOString()];
-            filter['createdAt[to]'] = [toDate.toISOString()];
-        }
-            
+        // if (!filter?.['orderedAt[from]']
+        //     && !filter?.['sentAt[from]']
+        //     && !filter?.['receivedAt[from]']
+        //     && !filter?.['cancelledAt[from]']
+        //     && !filter?.['neededAt[from]']) {
+        //     const date = new Date();
+        //     const fromDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+        //     const toDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+        //     filter['createdAt[from]'] = [fromDate.toISOString()];
+        //     filter['createdAt[to]'] = [toDate.toISOString()];
+        // }
+
         return await filterWithPaginate(deliveryHistoryTable, {
             pagination,
             filter,
