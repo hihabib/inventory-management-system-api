@@ -37,7 +37,7 @@ export class DeliveryHistoryService {
                     formatted.receivedAt = currentTime;
                     formatted.sentAt = currentTime;
                     formatted.cancelledAt = null;
-                } else if(item.status === "Order-Cancelled") {
+                } else if (item.status === "Order-Cancelled") {
                     formatted.cancelledAt = getCurrentDate();
                 }
 
@@ -119,18 +119,18 @@ export class DeliveryHistoryService {
             };
 
             // Set current time if status is being updated
-              if (deliveryHistoryData.status === "Order-Placed") {
-                    formattedData.orderedAt = getCurrentDate();
-                    formattedData.cancelledAt = null;
-                } else if (deliveryHistoryData.status === 'Order-Shipped' || deliveryHistoryData.status === "Return-Placed") {
-                    formattedData.sentAt = getCurrentDate();
-                    formattedData.cancelledAt = null;
-                } else if (deliveryHistoryData.status === "Order-Completed" || deliveryHistoryData.status === "Return-Completed") {
-                    formattedData.receivedAt = getCurrentDate();
-                    formattedData.cancelledAt = null;
-                } else if(deliveryHistoryData.status === "Order-Cancelled") {
-                    formattedData.cancelledAt = getCurrentDate();
-                }
+            if (deliveryHistoryData.status === "Order-Placed") {
+                formattedData.orderedAt = getCurrentDate();
+                formattedData.cancelledAt = null;
+            } else if (deliveryHistoryData.status === 'Order-Shipped' || deliveryHistoryData.status === "Return-Placed") {
+                formattedData.sentAt = getCurrentDate();
+                formattedData.cancelledAt = null;
+            } else if (deliveryHistoryData.status === "Order-Completed" || deliveryHistoryData.status === "Return-Completed") {
+                formattedData.receivedAt = getCurrentDate();
+                formattedData.cancelledAt = null;
+            } else if (deliveryHistoryData.status === "Order-Cancelled") {
+                formattedData.cancelledAt = getCurrentDate();
+            }
 
             // Update the delivery history
             const [updated] = await tx.update(deliveryHistoryTable)
@@ -147,7 +147,7 @@ export class DeliveryHistoryService {
                     pricePerQuantity: updated.pricePerQuantity,
                     quantity: updated.receivedQuantity
                 };
-                
+
                 try {
                     console.log("stock is adding", stockData);
                     await StockService.bulkCreateOrAddStockWithTx([stockData], tx);
@@ -166,7 +166,7 @@ export class DeliveryHistoryService {
                     unitId: updated.unitId,
                     quantity: updated.receivedQuantity
                 };
-                
+
                 try {
                     console.log("stock is reducing", stockReduction);
                     await StockService.bulkReduceStockWithTx([stockReduction], tx);
@@ -183,7 +183,13 @@ export class DeliveryHistoryService {
         return updatedDeliveryHistory;
     }
 
-    static async bulkUpdateDeliveryHistory(deliveryHistoryData: Array<{ id: string } & Partial<NewDeliveryHistory>>) {
+    static async bulkUpdateDeliveryHistory(deliveryHistoryData: Array<{
+        id: string, otherUnitPriceMapping: {
+            unitId: string;
+            price: number;
+            quantity: number;
+        }[]
+    } & Partial<NewDeliveryHistory>>) {
         const updatedDeliveryHistories = await db.transaction(async (tx) => {
             const results = [];
             const stocksToAdd: NewStock[] = [];
@@ -201,10 +207,10 @@ export class DeliveryHistoryService {
                 // Apply decimal precision formatting
                 const formattedUpdateData = {
                     ...updateData,
-                    ...(updateData.pricePerQuantity && { pricePerQuantity: Number(updateData.pricePerQuantity.toFixed(2)) }),
-                    ...(updateData.sentQuantity && { sentQuantity: Number(updateData.sentQuantity.toFixed(3)) }),
-                    ...(updateData.receivedQuantity && { receivedQuantity: Number(updateData.receivedQuantity.toFixed(3)) }),
-                    ...(updateData.orderedQuantity && { orderedQuantity: Number(updateData.orderedQuantity.toFixed(3)) }),
+                    ...(updateData.pricePerQuantity && { pricePerQuantity: parseFloat(updateData.pricePerQuantity.toFixed(2)) }),
+                    ...(updateData.sentQuantity && { sentQuantity: parseFloat(updateData.sentQuantity.toFixed(3)) }),
+                    ...(updateData.receivedQuantity && { receivedQuantity: parseFloat(updateData.receivedQuantity.toFixed(3)) }),
+                    ...(updateData.orderedQuantity && { orderedQuantity: parseFloat(updateData.orderedQuantity.toFixed(3)) }),
                     updatedAt: getCurrentDate()
                 };
 
@@ -218,7 +224,7 @@ export class DeliveryHistoryService {
                 } else if (updateData.status === "Order-Completed" || updateData.status === "Return-Completed") {
                     formattedUpdateData.receivedAt = getCurrentDate();
                     formattedUpdateData.cancelledAt = null;
-                } else if(updateData.status === "Order-Cancelled") {
+                } else if (updateData.status === "Order-Cancelled") {
                     formattedUpdateData.cancelledAt = getCurrentDate();
                 }
 
@@ -234,10 +240,17 @@ export class DeliveryHistoryService {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
                         unitId: updated.unitId,
-                        pricePerQuantity: updated.pricePerQuantity,
-                        quantity: updated.receivedQuantity
+                        pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
+                        quantity: parseFloat(updated.receivedQuantity.toFixed(3))
                     };
-                    stocksToAdd.push(stockData);
+                    const otherUnitStockData: NewStock[] = updateData.otherUnitPriceMapping.map((item) => ({
+                        maintainsId: updated.maintainsId,
+                        productId: updated.productId,
+                        unitId: item.unitId,
+                        pricePerQuantity: parseFloat(item.price.toFixed(2)),
+                        quantity: parseFloat(item.quantity.toFixed(3))
+                    }));
+                    stocksToAdd.push(stockData, ...otherUnitStockData);
                 }
 
                 // If status is being updated to 'Return-Completed', prepare stock data to reduce
@@ -316,7 +329,7 @@ export class DeliveryHistoryService {
                     condition: eq(deliveryHistoryTable.productId, productTable.id)
                 }
             ],
-            select: {...deliveryHistoryTable},
+            select: { ...deliveryHistoryTable },
             orderBy: asc(productTable.sku)
         });
     }

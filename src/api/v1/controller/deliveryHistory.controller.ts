@@ -18,7 +18,7 @@ export class DeliveryHistoryController {
             if (!item.status || !item.unitId || !item.productId || !item.maintainsId) {
                 return sendResponse(res, 400, 'Status, unit id, product id, and maintains id are required', null);
             }
-            
+
 
             // Check if ordered quantity and ordered unit are provided for Order-Placed status
             if ((item.status === "Order-Placed" && !item.orderedQuantity)
@@ -57,7 +57,13 @@ export class DeliveryHistoryController {
     })
 
     static bulkUpdateDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
-        const deliveryHistoryData = req.body as Array<{ id: string } & Partial<NewDeliveryHistory>>;
+        const deliveryHistoryData = req.body as Array<{
+            id: string, otherUnitPriceMapping: {
+                unitId: string;
+                price: number;
+                quantity: number;
+            }[]
+        } & Partial<NewDeliveryHistory>>;
         const updatedDeliveryHistories = await DeliveryHistoryService.bulkUpdateDeliveryHistory(deliveryHistoryData);
         sendResponse(res, 200, 'Transactions updated successfully', updatedDeliveryHistories);
     })

@@ -60,8 +60,8 @@ export class StockService {
                 if (existingStock.length > 0) {
                     const [updated] = await tx.update(stockTable)
                         .set({
-                            pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
-                            quantity: Number(stock.quantity.toFixed(3)),
+                            pricePerQuantity: parseFloat(stock.pricePerQuantity.toFixed(2)),
+                            quantity: parseFloat(stock.quantity.toFixed(3)),
                             updatedAt: getCurrentDate()
                         })
                         .where(eq(stockTable.id, existingStock[0].id))
@@ -94,8 +94,8 @@ export class StockService {
                     
                     const [inserted] = await tx.insert(stockTable).values({
                         ...stock,
-                        pricePerQuantity: Number(stock.pricePerQuantity.toFixed(2)),
-                        quantity: Number(stock.quantity.toFixed(3))
+                        pricePerQuantity: parseFloat(stock.pricePerQuantity.toFixed(2)),
+                        quantity: parseFloat(stock.quantity.toFixed(3))
                     }).returning();
                     
                     results.push({
