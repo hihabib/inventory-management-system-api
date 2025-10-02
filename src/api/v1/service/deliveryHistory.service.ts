@@ -343,7 +343,14 @@ export class DeliveryHistoryService {
                 }
             ],
             select: { ...deliveryHistoryTable },
-            orderBy: asc(sql`CAST(${productTable.sku} AS INTEGER)`)
+            orderBy: asc(sql`
+                CASE 
+                    WHEN ${productTable.sku} ~ '^[0-9]+\.?[0-9]*$' 
+                    THEN CAST(${productTable.sku} AS NUMERIC)
+                    ELSE 999999
+                END,
+                ${productTable.sku}
+            `)
         });
     }
 
