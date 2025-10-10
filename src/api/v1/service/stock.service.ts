@@ -3,6 +3,7 @@ import { db } from "../drizzle/db";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { productTable } from "../drizzle/schema/product";
 import { NewStock, stockTable } from "../drizzle/schema/stock";
+import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { unitTable } from "../drizzle/schema/unit";
 import { unitInProductTable } from "../drizzle/schema/unitInProduct";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
@@ -186,101 +187,7 @@ export class StockService {
         return results;
     }
 
-    static async bulkReduceStockWithTx(stocksToReduce: Array<{maintainsId: string, productId: string, unitId: string, quantity: number}>, tx: any) {
-        const results = [];
-        
-        for (const stockReduction of stocksToReduce) {
-            // Find the specific stock record that matches maintainsId, productId, and unitId
-            const [primaryStockRecord] = await tx
-                .select()
-                .from(stockTable)
-                .where(
-                    and(
-                        eq(stockTable.maintainsId, stockReduction.maintainsId),
-                        eq(stockTable.productId, stockReduction.productId),
-                        eq(stockTable.unitId, stockReduction.unitId)
-                    )
-                );
 
-            if (!primaryStockRecord) {
-                results.push({
-                    maintainsId: stockReduction.maintainsId,
-                    productId: stockReduction.productId,
-                    unitId: stockReduction.unitId,
-                    action: 'skipped',
-                    reason: 'Primary stock record not found'
-                });
-                continue;
-            }
-
-            // Check if primary stock has sufficient quantity
-            const newPrimaryQuantity = parseFloat((primaryStockRecord.quantity - stockReduction.quantity).toFixed(3));
-            if (newPrimaryQuantity < 0) {
-                throw new Error(`Insufficient stock. Available: ${primaryStockRecord.quantity}, Required: ${stockReduction.quantity}`);
-            }
-
-            // Find all other stock records with same maintainsId and productId but different unitId
-            const allStockRecords = await tx
-                .select()
-                .from(stockTable)
-                .where(
-                    and(
-                        eq(stockTable.maintainsId, stockReduction.maintainsId),
-                        eq(stockTable.productId, stockReduction.productId)
-                    )
-                );
-
-            // Update the primary stock record directly
-            const [updatedPrimary] = await tx
-                .update(stockTable)
-                .set({
-                    quantity: newPrimaryQuantity,
-                    updatedAt: getCurrentDate()
-                })
-                .where(eq(stockTable.id, primaryStockRecord.id))
-                .returning();
-
-            results.push({
-                ...updatedPrimary,
-                action: 'quantity_reduced_direct',
-                previousQuantity: primaryStockRecord.quantity,
-                reducedQuantity: stockReduction.quantity,
-                newQuantity: newPrimaryQuantity
-            });
-
-            // Update other related stock records proportionally
-            const otherStockRecords = allStockRecords.filter(record => record.id !== primaryStockRecord.id);
-            
-            for (const relatedStock of otherStockRecords) {
-                // Calculate proportional reduction: (relatedStock.quantity / primaryStockRecord.quantity) * reductionQuantity
-                const proportionalReduction = (relatedStock.quantity / primaryStockRecord.quantity) * stockReduction.quantity;
-                const newRelatedQuantity = parseFloat((relatedStock.quantity - proportionalReduction).toFixed(3));
-                
-                if (newRelatedQuantity < 0) {
-                    throw new Error(`Insufficient stock in related record for proportional reduction. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);
-                }
-
-                const [updatedRelated] = await tx
-                    .update(stockTable)
-                    .set({
-                        quantity: newRelatedQuantity,
-                        updatedAt: getCurrentDate()
-                    })
-                    .where(eq(stockTable.id, relatedStock.id))
-                    .returning();
-
-                results.push({
-                    ...updatedRelated,
-                    action: 'quantity_reduced_proportional',
-                    previousQuantity: relatedStock.quantity,
-                    reducedQuantity: proportionalReduction,
-                    newQuantity: newRelatedQuantity
-                });
-            }
-        }
-        
-        return results;
-    }
 
     static async updateStock({ id, ...stock }: Partial<NewStock> & { id: string }) {
         const updatedStock = await db.transaction(async (tx) => {
@@ -358,12 +265,19 @@ export class StockService {
                     table: maintainsTable,
                     alias: 'maintains',
                     condition: eq(maintainsTable.id, stockTable.maintainsId)
+                },
+                {
+                    table: stockBatchTable,
+                    alias: 'stockBatch',
+                    condition: eq(stockTable.stockBatchId, stockBatchTable.id),
+                    type: "left"
                 }
             ],
             select: {
                 "id": stockTable.id,
                 "createdAt": stockTable.createdAt,
                 "updatedAt": stockTable.updatedAt,
+                "stockBatchId": stockTable.stockBatchId,
                 "unit": sql`json_build_object('id', ${unitTable.id}, 'name', ${unitTable.name})`,
                 "product": sql`json_build_object(
                     'id', ${productTable.id}, 
@@ -372,9 +286,125 @@ export class StockService {
                     'sku', ${productTable.sku}
                 )`,
                 "maintains": sql`json_build_object('id', ${maintainsTable.id}, 'name', ${maintainsTable.name})`,
+                "stockBatch": sql`CASE 
+                    WHEN ${stockBatchTable.id} IS NOT NULL THEN 
+                        json_build_object(
+                            'id', ${stockBatchTable.id}, 
+                            'batchNumber', ${stockBatchTable.batchNumber},
+                            'productionDate', ${stockBatchTable.productionDate}
+                        )
+                    ELSE NULL 
+                END`,
                 "pricePerQuantity": stockTable.pricePerQuantity,
                 "quantity": stockTable.quantity
             }
         });
+    }
+
+    /**
+     * Get stocks with batch information
+     */
+    static async getStocksWithBatch(
+        pagination: PaginationOptions = {},
+        filter?: FilterOptions
+    ) {
+        return await this.getStocks(pagination, filter);
+    }
+
+    /**
+     * Get stock by ID with batch information
+     */
+    static async getStockByIdWithBatch(stockId: string) {
+        const [stock] = await db.select({
+            id: stockTable.id,
+            createdAt: stockTable.createdAt,
+            updatedAt: stockTable.updatedAt,
+            stockBatchId: stockTable.stockBatchId,
+            productId: stockTable.productId,
+            maintainsId: stockTable.maintainsId,
+            unitId: stockTable.unitId,
+            pricePerQuantity: stockTable.pricePerQuantity,
+            quantity: stockTable.quantity,
+            unit: {
+                id: unitTable.id,
+                name: unitTable.name,
+                description: unitTable.description
+            },
+            product: {
+                id: productTable.id,
+                name: productTable.name,
+                bengaliName: productTable.bengaliName,
+                sku: productTable.sku
+            },
+            maintains: {
+                id: maintainsTable.id,
+                name: maintainsTable.name,
+                type: maintainsTable.type
+            },
+            stockBatch: {
+                id: stockBatchTable.id,
+                batchNumber: stockBatchTable.batchNumber,
+                productionDate: stockBatchTable.productionDate
+            }
+        })
+        .from(stockTable)
+        .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
+        .innerJoin(productTable, eq(stockTable.productId, productTable.id))
+        .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
+        .leftJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+        .where(eq(stockTable.id, stockId));
+
+        return stock;
+    }
+
+    /**
+     * Get stocks by batch ID
+     */
+    static async getStocksByBatchId(batchId: string) {
+        return await db.select({
+            id: stockTable.id,
+            createdAt: stockTable.createdAt,
+            updatedAt: stockTable.updatedAt,
+            stockBatchId: stockTable.stockBatchId,
+            productId: stockTable.productId,
+            maintainsId: stockTable.maintainsId,
+            unitId: stockTable.unitId,
+            pricePerQuantity: stockTable.pricePerQuantity,
+            quantity: stockTable.quantity,
+            unit: {
+                id: unitTable.id,
+                name: unitTable.name,
+                description: unitTable.description
+            }
+        })
+        .from(stockTable)
+        .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
+        .where(eq(stockTable.stockBatchId, batchId));
+    }
+
+    /**
+     * Check if stock has sufficient quantity
+     */
+    static async checkStockAvailability(stockId: string, requiredQuantity: number) {
+        const [stock] = await db.select({
+            id: stockTable.id,
+            quantity: stockTable.quantity,
+            productId: stockTable.productId,
+            unitId: stockTable.unitId,
+            maintainsId: stockTable.maintainsId
+        })
+        .from(stockTable)
+        .where(eq(stockTable.id, stockId));
+
+        if (!stock) {
+            throw new Error(`Stock not found with ID: ${stockId}`);
+        }
+
+        return {
+            available: stock.quantity >= requiredQuantity,
+            currentQuantity: stock.quantity,
+            requiredQuantity,
+            stock
+        };
     }
 }

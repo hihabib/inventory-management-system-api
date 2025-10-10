@@ -2,6 +2,7 @@ import { numeric, pgTable, timestamp, uuid } from "drizzle-orm/pg-core";
 import { maintainsTable } from "./maintains";
 import { productTable } from "./product";
 import { unitTable } from "./unit";
+import { stockBatchTable } from "./stockBatch";
 
 export const stockTable = pgTable("stock", {
     id: uuid('id').defaultRandom().primaryKey(),
@@ -10,6 +11,7 @@ export const stockTable = pgTable("stock", {
     unitId: uuid('unit_id').references(() => unitTable.id).notNull(),
     productId: uuid('product_id').references(() => productTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
+    stockBatchId: uuid('stock_batch_id').references(() => stockBatchTable.id),
     pricePerQuantity: numeric('price_per_quantity', { mode: 'number', scale: 2}).notNull(),
     quantity: numeric('quantity', { mode: 'number', scale: 3 }).notNull()
 })

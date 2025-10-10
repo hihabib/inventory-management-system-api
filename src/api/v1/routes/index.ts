@@ -13,12 +13,14 @@ import saleRoutes from './sale.route'
 import paymentRoutes from './payment.route'
 import dashboardRoutes from './dashboard.route'
 import deliveryHistoryRoutes from './deliveryHistory.route'
+import stockBatchRoutes from './stockBatch.route'
 const router = Router();
 
 router.use("/users", userRoutes);
 router.use("/roles", roleRoutes);
 router.use("/products", [authMiddleware], productRoutes);
 router.use("/stocks", [authMiddleware], stockRoutes);
+router.use("/stock-batches", [authMiddleware], stockBatchRoutes);
 router.use("/units", [authMiddleware], unitRoutes);
 router.use("/product-categories", [authMiddleware], productCategoryRoutes);
 router.use("/maintains", [authMiddleware], maintainsRoutes);

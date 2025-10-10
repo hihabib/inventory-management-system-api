@@ -37,4 +37,32 @@ export class StockController {
         const results = await StockService.bulkCreateOrAddStock(stocks);
         sendResponse(res, 200, 'Bulk stock add operation completed successfully', results);
     })
+
+    static getStocksWithBatch = requestHandler(async (req: Request, res: Response) => {
+        const { pagination, filter } = getFilterAndPaginationFromRequest(req);
+        const stocks = await StockService.getStocksWithBatch(pagination, filter);
+        sendResponse(res, 200, 'Stocks with batch info fetched successfully', stocks);
+    })
+
+    static getStockByIdWithBatch = requestHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const stock = await StockService.getStockByIdWithBatch(id);
+        if (!stock) {
+            return sendResponse(res, 404, 'Stock not found', null);
+        }
+        sendResponse(res, 200, 'Stock with batch info fetched successfully', stock);
+    })
+
+    static getStocksByBatchId = requestHandler(async (req: Request, res: Response) => {
+        const { batchId } = req.params;
+        const stocks = await StockService.getStocksByBatchId(batchId);
+        sendResponse(res, 200, 'Stocks by batch ID fetched successfully', stocks);
+    })
+
+    static checkStockAvailability = requestHandler(async (req: Request, res: Response) => {
+        const { id } = req.params;
+        const { requiredQuantity } = req.body;
+        const availability = await StockService.checkStockAvailability(id, requiredQuantity);
+        sendResponse(res, 200, 'Stock availability checked successfully', availability);
+    })
 }

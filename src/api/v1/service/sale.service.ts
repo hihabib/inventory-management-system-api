@@ -1,24 +1,24 @@
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../drizzle/db";
-import { NewSale, saleTable } from "../drizzle/schema/sale";
-import { FilterOptions, PaginationOptions, filterWithPaginate } from '../utils/filterWithPaginate';
-import { NewPayment, paymentTable, PaymentMethod } from "../drizzle/schema/payment";
+import { customerDueTable } from "../drizzle/schema/customerDue";
+import { PaymentMethod, paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
-import { stockTable } from "../drizzle/schema/stock";
-import { unitTable } from "../drizzle/schema/unit";
-import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
-import { getCurrentDate } from "../utils/timezone";
+import { saleTable } from "../drizzle/schema/sale";
+import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
+import { StockBatchService } from "./stockBatch.service";
 
 interface ProductItem {
     productName: string;
     discount: number;
     discountType: "Fixed" | "Percentage";
-    price: number;
+    price_per_quantity: number;
     quantity: number;
     unit: string;
     stock: number;
     productId: string;
     discountNote: string;
+    stockBatchId: string;
+    unitId: string;
 }
 
 interface PaymentInfo {
@@ -42,33 +42,36 @@ export class SaleService {
     static async createSale(saleData: SaleRequest, userId: string) {
         return await db.transaction(async (tx) => {
             try {
+                // First, process the multi-batch sale to reduce stock quantities
+                const saleItems = saleData.products.map(product => ({
+                    stockBatchId: product.stockBatchId,
+                    unitId: product.unitId,
+                    quantity: product.quantity
+                }));
+
+                // Process stock reduction using the multi-batch sale service
+                await StockBatchService.processMultiBatchSale(saleItems);
+
                 const saleIds: string[] = [];
 
-                // Process each product in the sale
+                // Process each product in the sale to create sale records
                 for (const product of saleData.products) {
-                    // Find unit by name
-                    const [unit] = await tx
-                        .select()
-                        .from(unitTable)
-                        .where(eq(unitTable.name, product.unit));
-
-                    if (!unit) {
-                        throw new Error(`Unit '${product.unit}' not found`);
-                    }
-
                     // Calculate sale amount based on discount type
                     let saleAmount: number;
-                    if (product.discountType === "Fixed") {
-                        saleAmount = (product.quantity * product.price) - product.discount;
+                    const discount = product.discount || 0;
+                    const discountType = product.discountType || "Fixed";
+                    
+                    if (discountType === "Fixed") {
+                        saleAmount = (product.quantity * product.price_per_quantity) - discount;
                     } else { // Percentage
-                        saleAmount = (product.quantity * product.price) -
-                            (product.quantity * product.price * product.discount / 100);
+                        saleAmount = (product.quantity * product.price_per_quantity) -
+                            (product.quantity * product.price_per_quantity * discount / 100);
                     }
 
                     // Apply decimal precision formatting
                     const formattedSaleQuantity = Number(product.quantity.toFixed(3));
                     const formattedSaleAmount = Number(saleAmount.toFixed(2));
-                    const formattedPricePerUnit = Number(product.price.toFixed(2));
+                    const formattedPricePerUnit = Number(product.price_per_quantity.toFixed(2));
 
                     // Create sale record
                     const [sale] = await tx.insert(saleTable).values({
@@ -78,9 +81,9 @@ export class SaleService {
                         customerId: saleData.customerId || null,
                         productId: product.productId,
                         productName: product.productName,
-                        discountType: product.discountType,
-                        discountAmount: product.discount,
-                        discountNote: product.discountNote,
+                        discountType: discountType,
+                        discountAmount: discount,
+                        discountNote: product.discountNote || null,
                         saleQuantity: formattedSaleQuantity,
                         saleAmount: formattedSaleAmount,
                         pricePerUnit: formattedPricePerUnit,
@@ -88,71 +91,6 @@ export class SaleService {
                     }).returning();
 
                     saleIds.push(sale.id);
-
-                    // Find the specific stock record for the sale
-                    const [stockRecord] = await tx
-                        .select()
-                        .from(stockTable)
-                        .where(
-                            and(
-                                eq(stockTable.maintainsId, saleData.maintainsId),
-                                eq(stockTable.unitId, unit.id),
-                                eq(stockTable.productId, product.productId),
-                                eq(stockTable.pricePerQuantity, product.price)
-                            )
-                        );
-
-                    if (!stockRecord) {
-                        throw new Error(`Stock record not found for product ${product.productName} with unit ${product.unit} and price ${product.price}`);
-                    }
-
-                    // Check if stock is sufficient
-                    const newQuantity = stockRecord.quantity - product.quantity;
-                    if (newQuantity < 0) {
-                        throw new Error(`Insufficient stock for product ${product.productName}. Available: ${stockRecord.quantity}, Required: ${product.quantity}`);
-                    }
-
-                    // Find all stock records with same product ID and maintains ID
-                    const allStockRecords = await tx
-                        .select()
-                        .from(stockTable)
-                        .where(
-                            and(
-                                eq(stockTable.maintainsId, saleData.maintainsId),
-                                eq(stockTable.productId, product.productId)
-                            )
-                        );
-
-                    // Update all related stock records proportionally
-                    for (const relatedStock of allStockRecords) {
-                        if (relatedStock.id === stockRecord.id) {
-                            // Update the main selling stock record
-                            await tx
-                                .update(stockTable)
-                                .set({
-                                    quantity: newQuantity,
-                                    updatedAt: getCurrentDate()
-                                })
-                                .where(eq(stockTable.id, relatedStock.id));
-                        } else {
-                            // Calculate proportional reduction for other stock records
-                            // Formula: (relatedStock.quantity / stockRecord.quantity) * product.quantity
-                            const proportionalReduction = (relatedStock.quantity / stockRecord.quantity) * product.quantity;
-                            const newRelatedQuantity = relatedStock.quantity - proportionalReduction;
-                            
-                            if (newRelatedQuantity < 0) {
-                                throw new Error(`Insufficient stock in related record for product ${product.productName}. Available: ${relatedStock.quantity}, Required: ${proportionalReduction}`);
-                            }
-
-                            await tx
-                                .update(stockTable)
-                                .set({
-                                    quantity: newRelatedQuantity,
-                                    updatedAt: getCurrentDate()
-                                })
-                                .where(eq(stockTable.id, relatedStock.id));
-                        }
-                    }
                 }
 
                 // Create payment record
@@ -162,17 +100,34 @@ export class SaleService {
                     "cash": 0,
                     "due": 0,
                     "card": 0,
-                    'sendForUse': 0
+                    "sendForUse": 0
                 };
-                saleData.paymentInfo.forEach(payment => {
-                    paymentMethods[payment.method as keyof PaymentMethod] = payment.amount;
-                });
+                
+                // Validate payment methods and accumulate amounts
+                let totalPaymentAmount = 0;
+                for (const payment of saleData.paymentInfo) {
+                    if (!payment.method || typeof payment.amount !== 'number' || payment.amount < 0) {
+                        throw new Error("Invalid payment method or amount");
+                    }
+                    
+                    const method = payment.method as PaymentMethod;
+                    if (!(method in paymentMethods)) {
+                        throw new Error(`Invalid payment method: ${method}`);
+                    }
+                    
+                    paymentMethods[method] += payment.amount;
+                    totalPaymentAmount += payment.amount;
+                }
+
+                // Validate total payment amount matches sale total
+                if (Math.abs(totalPaymentAmount - saleData.totalPriceWithDiscount) > 0.01) {
+                    throw new Error(`Payment total (${totalPaymentAmount}) does not match sale total (${saleData.totalPriceWithDiscount})`);
+                }
 
                 // Check if due amount is present and validate customer ID
                 const dueAmount = paymentMethods.due;
                 if (dueAmount > 0 && !saleData.customerId) {
-                    // throw new Error("Customer ID is required when due amount is greater than 0");
-                    tx.rollback();
+                    throw new Error("Customer ID is required when due amount is greater than 0");
                 }
 
                 // Create customer due record if due amount exists
@@ -190,7 +145,7 @@ export class SaleService {
 
                 const [payment] = await tx.insert(paymentTable).values({
                     maintainsId: saleData.maintainsId,
-                    payments: paymentMethods as any,
+                    payments: paymentMethods,
                     totalAmount: Number(saleData.totalPriceWithDiscount.toFixed(2)),
                     customerDueId: customerDueId,
                     createdBy: userId
@@ -202,6 +157,27 @@ export class SaleService {
                     saleId: saleId
                 }));
                 await tx.insert(paymentSaleTable).values(paymentSaleEntries);
+
+                // After successful sale completion, clean up empty stock batches
+                console.log('🧹 [SaleService] Starting post-sale stock batch cleanup');
+                
+                // Extract unique product-outlet combinations from the sale
+                const saleItemsForCleanup = saleData.products.map(product => ({
+                    productId: product.productId,
+                    maintainsId: saleData.maintainsId
+                }));
+
+                // Perform cleanup outside the main transaction to avoid conflicts
+                // This is done after the sale is committed to ensure data consistency
+                setImmediate(async () => {
+                    try {
+                        const cleanupResult = await StockBatchService.cleanupEmptyStockBatchesAfterSale(saleItemsForCleanup);
+                        console.log('✅ [SaleService] Stock batch cleanup completed:', cleanupResult);
+                    } catch (cleanupError) {
+                        console.error('❌ [SaleService] Stock batch cleanup failed:', cleanupError);
+                        // Don't throw error here as the sale has already been completed successfully
+                    }
+                });
 
                 return {
                     sales: saleIds,

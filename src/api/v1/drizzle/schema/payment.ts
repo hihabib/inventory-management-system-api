@@ -12,7 +12,7 @@ export const paymentTable = pgTable('payment', {
     updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
-    payments: jsonb().$type<Record<keyof PaymentMethod, number>>().notNull(),
+    payments: jsonb().$type<Record<PaymentMethod, number>>().notNull(),
     totalAmount: numeric('total_amount', { mode: 'number', scale: 2 }).notNull(),
     customerDueId: uuid('customer_due_id').references(() => customerDueTable.id).default(null),
 })

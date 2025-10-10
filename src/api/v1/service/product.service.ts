@@ -4,42 +4,86 @@ import { db } from "../drizzle/db";
 import { NewProduct, productTable } from "../drizzle/schema/product";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { unitInProductTable } from "../drizzle/schema/unitInProduct";
+import { unitConversionTable } from "../drizzle/schema/unitConversion";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from "../utils/filterWithPaginate";
 import { unitTable } from "../drizzle/schema/unit";
 import { stockTable } from "../drizzle/schema/stock";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { productCategoryTable } from '../drizzle/schema/productCategory';
 import { getCurrentDate } from '../utils/timezone';
+import { stockBatchTable } from '../drizzle/schema/stockBatch';
 
 
 export class ProductService {
-    static async createProduct({ categoriesId, unitsId, ...product }: NewProduct & { unitsId: string[], categoriesId: string[] }) {
+    /**
+     * Create product with units and their conversion factors
+     */
+    static async createProductWithUnits({ 
+        categoriesId, 
+        unitConversions, 
+        ...product 
+    }: NewProduct & { 
+        unitConversions: Array<{ unitId: string; conversionFactor: number }>, 
+        categoriesId: string[] 
+    }) {
         const insertedProduct = await db.transaction(async (tx) => {
+            // Check if product with same SKU exists
             const existingProduct = await tx.select().from(productTable).where(eq(productTable.sku, product.sku));
             if (existingProduct.length > 0) {
-                tx.rollback();
+                throw new Error(`Product with SKU ${product.sku} already exists`);
             }
+
+            // Create the product
             const [insertedProduct] = await tx.insert(productTable).values({
                 ...product,
             }).returning();
+
+            // Extract unit IDs from conversions
+            const unitsId = unitConversions.map(uc => uc.unitId);
+
+            // Create unit-product relationships
             await tx.insert(unitInProductTable).values(unitsId.map(unitId => ({
                 unitId,
                 productId: insertedProduct.id
-            }))).returning();
-            await tx.insert(productCategoryInProductTable).values(categoriesId.map(categoryId => ({
-                productCategoryId: categoryId,
-                productId: insertedProduct.id
-            }))).returning();
+            })));
+
+            // Create unit conversions
+            await tx.insert(unitConversionTable).values(unitConversions.map(uc => ({
+                productId: insertedProduct.id,
+                unitId: uc.unitId,
+                conversionFactor: Number(uc.conversionFactor.toFixed(6))
+            })));
+
+            // Create category relationships
+            if (categoriesId && categoriesId.length > 0) {
+                await tx.insert(productCategoryInProductTable).values(categoriesId.map(categoryId => ({
+                    productCategoryId: categoryId,
+                    productId: insertedProduct.id
+                })));
+            }
+
             return {
                 ...insertedProduct,
-                unitsId,
+                unitConversions,
                 categoriesId,
-            }
-        })
+            };
+        });
+
         return insertedProduct;
     }
 
-    static async updateProduct({ categoriesId, unitsId, ...product }: Partial<NewProduct> & { id: string, unitsId?: string[], categoriesId?: string[] }) {
+    /**
+     * Update product with unit conversions
+     */
+    static async updateProductWithUnits({ 
+        categoriesId, 
+        unitConversions, 
+        ...product 
+    }: Partial<NewProduct> & { 
+        id: string, 
+        unitConversions?: Array<{ unitId: string; conversionFactor: number }>, 
+        categoriesId?: string[] 
+    }) {
         const productId = product.id;
         const updatedProduct = await db.transaction(async (tx) => {
             // Check if product exists
@@ -57,20 +101,23 @@ export class ProductService {
                 .where(eq(productTable.id, productId))
                 .returning();
 
-            // Handle unit relationships if provided
-            if (unitsId) {
-                // Get existing unit relationships
+            // Handle unit conversions if provided
+            if (unitConversions) {
+                // Get existing unit relationships and conversions
                 const existingUnits = await tx.select()
                     .from(unitInProductTable)
                     .where(eq(unitInProductTable.productId, productId));
 
+                const existingConversions = await tx.select()
+                    .from(unitConversionTable)
+                    .where(eq(unitConversionTable.productId, productId));
+
                 const existingUnitIds = existingUnits.map(u => u.unitId);
+                const newUnitIds = unitConversions.map(uc => uc.unitId);
 
-                // Find units to add (in unitsId but not in existingUnitIds)
-                const unitsToAdd = unitsId.filter(id => !existingUnitIds.includes(id));
-
-                // Find units to remove (in existingUnitIds but not in unitsId)
-                const unitsToRemove = existingUnitIds.filter(id => !unitsId.includes(id));
+                // Find units to add and remove
+                const unitsToAdd = newUnitIds.filter(id => !existingUnitIds.includes(id));
+                const unitsToRemove = existingUnitIds.filter(id => !newUnitIds.includes(id));
 
                 // Add new unit relationships
                 if (unitsToAdd.length > 0) {
@@ -92,6 +139,18 @@ export class ProductService {
                             )
                         );
                 }
+
+                // Update unit conversions
+                // Delete existing conversions
+                await tx.delete(unitConversionTable)
+                    .where(eq(unitConversionTable.productId, productId));
+
+                // Insert new conversions
+                await tx.insert(unitConversionTable).values(unitConversions.map(uc => ({
+                    productId,
+                    unitId: uc.unitId,
+                    conversionFactor: Number(uc.conversionFactor.toFixed(6))
+                })));
             }
 
             // Handle category relationships if provided
@@ -103,10 +162,8 @@ export class ProductService {
 
                 const existingCategoryIds = existingCategories.map(c => c.productCategoryId);
 
-                // Find categories to add (in categoriesId but not in existingCategoryIds)
+                // Find categories to add and remove
                 const categoriesToAdd = categoriesId.filter(id => !existingCategoryIds.includes(id));
-
-                // Find categories to remove (in existingCategoryIds but not in categoriesId)
                 const categoriesToRemove = existingCategoryIds.filter(id => !categoriesId.includes(id));
 
                 // Add new category relationships
@@ -131,10 +188,10 @@ export class ProductService {
                 }
             }
 
-            // Get updated unit and category IDs for the response
-            const updatedUnits = await tx.select()
-                .from(unitInProductTable)
-                .where(eq(unitInProductTable.productId, productId));
+            // Get updated unit conversions and category IDs for the response
+            const updatedConversions = await tx.select()
+                .from(unitConversionTable)
+                .where(eq(unitConversionTable.productId, productId));
 
             const updatedCategories = await tx.select()
                 .from(productCategoryInProductTable)
@@ -142,12 +199,33 @@ export class ProductService {
 
             return {
                 ...updatedProduct,
-                unitsId: updatedUnits.map(u => u.unitId),
+                unitConversions: updatedConversions.map(uc => ({
+                    unitId: uc.unitId,
+                    conversionFactor: uc.conversionFactor
+                })),
                 categoriesId: updatedCategories.map(c => c.productCategoryId)
             };
         });
 
         return updatedProduct;
+    }
+
+    /**
+     * Get unit conversions for a product
+     */
+    static async getProductUnitConversions(productId: string) {
+        return await db.select({
+            unitId: unitConversionTable.unitId,
+            conversionFactor: unitConversionTable.conversionFactor,
+            unit: {
+                id: unitTable.id,
+                name: unitTable.name,
+                description: unitTable.description
+            }
+        })
+        .from(unitConversionTable)
+        .innerJoin(unitTable, eq(unitConversionTable.unitId, unitTable.id))
+        .where(eq(unitConversionTable.productId, productId));
     }
 
     static async deleteProduct(productId: string) {
@@ -184,6 +262,7 @@ export class ProductService {
                 bengaliName: productTable.bengaliName,
                 lowStockThreshold: productTable.lowStockThreshold,
                 sku: productTable.sku,
+                defaultOrderUnit: productTable.defaultOrderUnit,
                 mainUnit: {
                     id: unitTable.id,
                     name: unitTable.name,
@@ -214,9 +293,26 @@ export class ProductService {
             .innerJoin(unitTable, eq(unitInProductTable.unitId, unitTable.id))
             .where(eq(unitInProductTable.productId, id));
 
+        // Step 2.1: Get unit conversions for this product
+        const unitConversions = await db
+            .select({
+                unitId: unitConversionTable.unitId,
+                conversionFactor: unitConversionTable.conversionFactor,
+                unitName: unitTable.name,
+                unitDescription: unitTable.description,
+                unitCreatedAt: unitTable.createdAt,
+                unitUpdatedAt: unitTable.updatedAt
+            })
+            .from(unitConversionTable)
+            .innerJoin(unitTable, eq(unitConversionTable.unitId, unitTable.id))
+            .where(eq(unitConversionTable.productId, id));
+
         // Step 3: Get stock information for this product
         const stockInfo = await db
             .select({
+                stockId: stockTable.id,
+                stockBatchId: stockTable.stockBatchId,
+                stockBatchCreatedAt: stockBatchTable.createdAt,
                 productId: stockTable.productId,
                 unitId: stockTable.unitId,
                 unitName: unitTable.name,
@@ -227,6 +323,7 @@ export class ProductService {
             })
             .from(stockTable)
             .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
+            .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
             .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
             .where(eq(stockTable.productId, id));
 
@@ -255,6 +352,9 @@ export class ProductService {
                 stockByMaintain[stock.maintainsName] = [];
             }
             stockByMaintain[stock.maintainsName].push({
+                stockId: stock.stockId,
+                stockBatchId: stock.stockBatchId,
+                stockBatchCreatedAt: stock.stockBatchCreatedAt,
                 maintainsId: stock.maintainsId,
                 maintainsName: stock.maintainsName,
                 unitId: stock.unitId,
@@ -283,11 +383,25 @@ export class ProductService {
             updatedAt: unit.updatedAt
         }));
 
+        // Format unit conversions for this product
+        const unitConversionsFormatted = unitConversions.map(conversion => ({
+            unitId: conversion.unitId,
+            conversionFactor: conversion.conversionFactor,
+            unit: {
+                id: conversion.unitId,
+                name: conversion.unitName,
+                description: conversion.unitDescription,
+                createdAt: conversion.unitCreatedAt,
+                updatedAt: conversion.unitUpdatedAt
+            }
+        }));
+
         return {
             ...productDetail,
             stocks: stockByMaintain,
             categories,
-            units // Add all associated units to the response
+            units, // Add all associated units to the response
+            unitConversions: unitConversionsFormatted // Add unit conversions to the response
         };
     }
 
@@ -353,6 +467,7 @@ export class ProductService {
                 bengaliName: productTable.bengaliName,
                 lowStockThreshold: productTable.lowStockThreshold,
                 sku: productTable.sku,
+                defaultOrderUnit: productTable.defaultOrderUnit,
                 mainUnit: {
                     id: unitTable.id,
                     name: unitTable.name,
@@ -367,6 +482,7 @@ export class ProductService {
                 productTable.bengaliName,
                 productTable.lowStockThreshold,
                 productTable.sku,
+                productTable.defaultOrderUnit,
                 unitTable.id,
                 unitTable.name,
                 unitTable.description,
@@ -395,12 +511,15 @@ export class ProductService {
                 maintainsId: maintainsTable.id,
                 maintainsName: maintainsTable.name,
                 quantity: stockTable.quantity,
-                pricePerQuantity: stockTable.pricePerQuantity
+                pricePerQuantity: stockTable.pricePerQuantity,
+                stockBatchId: stockTable.stockBatchId,
+                stockBatchCreatedAt: stockBatchTable.createdAt
             })
             .from(stockTable)
+            .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
             .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
             .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
-            .where(inArray(stockTable.productId, productIds));
+            .where(inArray(stockTable.productId, productIds))
 
         // Step 3: Get all units associated with these products
         const allUnits = await db
@@ -431,6 +550,21 @@ export class ProductService {
             .innerJoin(productCategoryTable, eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id))
             .where(inArray(productCategoryInProductTable.productId, productIds));
 
+        // Step 4.1: Get unit conversions for these products
+        const unitConversionsInfo = await db
+            .select({
+                productId: unitConversionTable.productId,
+                unitId: unitConversionTable.unitId,
+                conversionFactor: unitConversionTable.conversionFactor,
+                unitName: unitTable.name,
+                unitDescription: unitTable.description,
+                unitCreatedAt: unitTable.createdAt,
+                unitUpdatedAt: unitTable.updatedAt
+            })
+            .from(unitConversionTable)
+            .innerJoin(unitTable, eq(unitConversionTable.unitId, unitTable.id))
+            .where(inArray(unitConversionTable.productId, productIds));
+
         // Step 5: Process and combine results
         const productsWithStock = productsResult.list.map(product => {
             // Get all stock records for this product
@@ -443,14 +577,16 @@ export class ProductService {
                     stockByMaintain[stock.maintainsName] = [];
                 }
                 stockByMaintain[stock.maintainsName].push({
-                    id: stock.id,
+                    stockId: stock.id,
+                    stockBatchId: stock.stockBatchId,
+                    stockBatchCreatedAt: stock.stockBatchCreatedAt,
                     createdAt: stock.createdAt,
                     maintainsId: stock.maintainsId,
                     unitId: stock.unitId,
                     maintainsName: stock.maintainsName,
                     quantity: parseFloat(stock.quantity.toFixed(3)),
                     unitName: stock.unitName,
-                    pricePerQuantity: stock.pricePerQuantity
+                    pricePerQuantity: stock.pricePerQuantity,
                 });
             });
 
@@ -464,11 +600,27 @@ export class ProductService {
                 .filter(u => u.productId === product.id)
                 .map(u => ({ id: u.unitId, name: u.name, description: u.description, createdAt: u.createdAt, updatedAt: u.updatedAt }));
 
+            // Get unit conversions for this product
+            const productUnitConversions = unitConversionsInfo
+                .filter(uc => uc.productId === product.id)
+                .map(uc => ({
+                    unitId: uc.unitId,
+                    conversionFactor: uc.conversionFactor,
+                    unit: {
+                        id: uc.unitId,
+                        name: uc.unitName,
+                        description: uc.unitDescription,
+                        createdAt: uc.unitCreatedAt,
+                        updatedAt: uc.unitUpdatedAt
+                    }
+                }));
+
             return {
                 ...product,
                 stocks: stockByMaintain,
                 categories: productCategories,
-                units: productUnits
+                units: productUnits,
+                unitConversions: productUnitConversions
             };
         });
 

@@ -11,7 +11,9 @@ export const productTable = pgTable('product', {
     bengaliName: varchar().notNull(),
     lowStockThreshold: numeric('low_stock_thres_hold', {mode: 'number', scale: 2}).notNull().default(5),
     sku: varchar().default("").unique(),
-    mainUnitId: uuid('main_unit_id').references(() => unitTable.id)
+    mainUnitId: uuid('main_unit_id').references(() => unitTable.id),
+    // Default order unit identifier or label; optional, defaults to empty string
+    defaultOrderUnit: varchar('default_order_unit').default("")
 });
 
 export type ProductTable = typeof productTable.$inferSelect;

@@ -1,9 +1,10 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { asc, desc, eq, sql, and } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { StockService } from "./stock.service";
-import { NewStock } from "../drizzle/schema/stock";
+import { StockBatchService } from "./stockBatch.service";
+import { NewStock, stockTable } from "../drizzle/schema/stock";
 import { getCurrentDate } from "../utils/timezone";
 import { productTable } from "../drizzle/schema/product";
 
@@ -21,7 +22,8 @@ export class DeliveryHistoryService {
                     ...(item.neededAt && { neededAt: new Date(item.neededAt) }),
                     ...(item.sentQuantity && { sentQuantity: Number(item.sentQuantity.toFixed(3)) }),
                     ...(item.receivedQuantity && { receivedQuantity: Number(item.receivedQuantity.toFixed(3)) }),
-                    ...(item.orderedQuantity && { orderedQuantity: Number(item.orderedQuantity.toFixed(3)) })
+                    ...(item.orderedQuantity && { orderedQuantity: Number(item.orderedQuantity.toFixed(3)) }),
+                    ...(item.latestUnitPriceData && { latestUnitPriceData: item.latestUnitPriceData })
                 };
 
                 // Set current time according to status 
@@ -72,25 +74,124 @@ export class DeliveryHistoryService {
                 }
             }
 
-            // If there are stocks to add, call bulkCreateOrAddStockWithTx
+            // If there are stocks to add, update latest batch or create new when prices differ
             if (stocksToAdd.length > 0) {
                 try {
                     console.log("stocks are adding", stocksToAdd);
-                    await StockService.bulkCreateOrAddStockWithTx(stocksToAdd, tx);
+                    // Aggregate client-provided unit prices per product-maintains key when available
+                    const clientUnitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
+                    for (const created of createdDeliveryHistories) {
+                        if (created.status === 'Order-Completed' && Array.isArray((created as any).latestUnitPriceData) && (created as any).latestUnitPriceData.length > 0) {
+                            const key = `${created.productId}-${created.maintainsId}`;
+                            const incoming = (created as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[];
+                            if (!clientUnitPricesByKey[key]) clientUnitPricesByKey[key] = [];
+                            // Merge and dedupe by unitId (last write wins)
+                            for (const up of incoming) {
+                                const idx = clientUnitPricesByKey[key].findIndex(p => p.unitId === up.unitId);
+                                if (idx >= 0) clientUnitPricesByKey[key][idx] = up; else clientUnitPricesByKey[key].push(up);
+                            }
+                        }
+                    }
+                    // Group stocks by product and maintains for batch update
+                    const stockGroups = stocksToAdd.reduce((groups, stock) => {
+                        const key = `${stock.productId}-${stock.maintainsId}`;
+                        if (!groups[key]) {
+                            groups[key] = [];
+                        }
+                        groups[key].push(stock);
+                        return groups;
+                    }, {} as Record<string, NewStock[]>);
+
+                    // Track unit prices used per group for latestUnitPriceData
+                    const unitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
+
+                    // Update latest batch for each product-maintains combination
+                    for (const [key, stocks] of Object.entries(stockGroups)) {
+                        // Resolve product's main unit and select matching stock as main unit reference
+                        const [productRow] = await tx
+                            .select({ mainUnitId: productTable.mainUnitId })
+                            .from(productTable)
+                            .where(eq(productTable.id, stocks[0].productId));
+                        const mainUnitId = productRow?.mainUnitId;
+                        const mainStock = mainUnitId ? stocks.find(s => s.unitId === mainUnitId) : undefined;
+                        if (!mainStock) {
+                            console.error("[DeliveryHistoryService#create] Rolling back: main unit stock not found", {
+                                productId: stocks[0].productId,
+                                maintainsId: stocks[0].maintainsId,
+                                mainUnitId
+                            });
+                            tx.rollback();
+                            throw new Error(`Main unit stock not found for product ${stocks[0].productId}`);
+                        }
+                        // Collect unit prices: prefer client-provided latestUnitPriceData for this key
+                        const clientUnitPrices = clientUnitPricesByKey[key];
+                        const unitPrices = Array.isArray(clientUnitPrices) && clientUnitPrices.length > 0
+                            ? clientUnitPrices
+                            : stocks.map(stock => ({
+                                unitId: stock.unitId,
+                                pricePerQuantity: stock.pricePerQuantity
+                            }));
+
+                        unitPricesByKey[key] = unitPrices;
+
+                        await StockBatchService.updateLatestBatchByProductAndMaintains(
+                            mainStock.productId,
+                            mainStock.maintainsId,
+                            {
+                                mainUnitQuantity: mainStock.quantity,
+                                unitPrices: unitPrices,
+                                productionDate: getCurrentDate()
+                            }
+                        );
+                    }
+
+                    // Update latestUnitPriceData for created Order-Completed records
+                    for (const created of createdDeliveryHistories) {
+                        if (created.status === 'Order-Completed') {
+                            const key = `${created.productId}-${created.maintainsId}`;
+                            const data = unitPricesByKey[key] ?? [{ unitId: created.unitId, pricePerQuantity: created.pricePerQuantity }];
+                            await tx.update(deliveryHistoryTable)
+                                .set({ latestUnitPriceData: data })
+                                .where(eq(deliveryHistoryTable.id, created.id));
+                        }
+                    }
                 } catch (error) {
                     // If stock creation fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#create] Rolling back during stocksToAdd", { error });
                     tx.rollback();
                     throw error;
                 }
             }
 
-            // If there are stocks to reduce, call bulkReduceStockWithTx
+            // If there are stocks to reduce, use StockBatchService instead of old proportional logic
             if (stocksToReduce.length > 0) {
                 try {
                     console.log("stocks are reducing", stocksToReduce);
-                    await StockService.bulkReduceStockWithTx(stocksToReduce, tx);
+
+                    // Process each stock reduction using the new stock batch system
+                    for (const stockReduction of stocksToReduce) {
+                        // Find the specific stock record that matches the criteria
+                        const [stockRecord] = await tx
+                            .select()
+                            .from(stockTable)
+                            .where(
+                                and(
+                                    eq(stockTable.maintainsId, stockReduction.maintainsId),
+                                    eq(stockTable.productId, stockReduction.productId),
+                                    eq(stockTable.unitId, stockReduction.unitId)
+                                )
+                            );
+
+                        if (!stockRecord) {
+                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
+                        }
+
+                        // Use StockBatchService to process the reduction properly
+                        await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
+                    }
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#create] Rolling back during stocksToReduce", { error });
                     tx.rollback();
                     throw error;
                 }
@@ -105,6 +206,7 @@ export class DeliveryHistoryService {
             // Check if delivery history exists
             const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
             if (existingDeliveryHistory.length === 0) {
+                console.error("[DeliveryHistoryService#update] Rolling back: delivery history not found", { id });
                 tx.rollback();
             }
 
@@ -138,7 +240,7 @@ export class DeliveryHistoryService {
                 .where(eq(deliveryHistoryTable.id, id))
                 .returning();
 
-            // If status is being updated to 'Order-Completed', add stock
+            // If status is being updated to 'Order-Completed', add stock and set latestUnitPriceData
             if (deliveryHistoryData.status === 'Order-Completed') {
                 const stockData: NewStock = {
                     maintainsId: updated.maintainsId,
@@ -150,9 +252,36 @@ export class DeliveryHistoryService {
 
                 try {
                     console.log("stock is adding", stockData);
-                    await StockService.bulkCreateOrAddStockWithTx([stockData], tx);
+                    const unitPricesFromClient = Array.isArray((deliveryHistoryData as any).latestUnitPriceData)
+                        ? (deliveryHistoryData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[]
+                        : undefined;
+                    const updatePayload: {
+                        mainUnitQuantity: number;
+                        unitPrices?: { unitId: string; pricePerQuantity: number }[];
+                        productionDate: Date;
+                    } = {
+                        mainUnitQuantity: stockData.quantity,
+                        productionDate: getCurrentDate()
+                    };
+                    if (unitPricesFromClient && unitPricesFromClient.length > 0) {
+                        updatePayload.unitPrices = unitPricesFromClient;
+                    }
+                    await StockBatchService.updateLatestBatchByProductAndMaintains(
+                        stockData.productId,
+                        stockData.maintainsId,
+                        updatePayload
+                    );
+
+                    // Persist latest unit price data on the delivery history
+                    const dataToPersist = (unitPricesFromClient && unitPricesFromClient.length > 0)
+                        ? unitPricesFromClient
+                        : [{ unitId: stockData.unitId, pricePerQuantity: stockData.pricePerQuantity }];
+                    await tx.update(deliveryHistoryTable)
+                        .set({ latestUnitPriceData: dataToPersist })
+                        .where(eq(deliveryHistoryTable.id, updated.id));
                 } catch (error) {
                     // If stock creation fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#update] Rolling back during Order-Completed stock add", { id, stockData, error });
                     tx.rollback();
                     throw error;
                 }
@@ -169,9 +298,28 @@ export class DeliveryHistoryService {
 
                 try {
                     console.log("stock is reducing", stockReduction);
-                    await StockService.bulkReduceStockWithTx([stockReduction], tx);
+
+                    // Find the specific stock record that matches the criteria
+                    const [stockRecord] = await tx
+                        .select()
+                        .from(stockTable)
+                        .where(
+                            and(
+                                eq(stockTable.maintainsId, stockReduction.maintainsId),
+                                eq(stockTable.productId, stockReduction.productId),
+                                eq(stockTable.unitId, stockReduction.unitId)
+                            )
+                        );
+
+                    if (!stockRecord) {
+                        throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
+                    }
+
+                    // Use StockBatchService to process the reduction properly
+                    await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#update] Rolling back during Return-Completed stock reduce", { id, stockReduction, error });
                     tx.rollback();
                     throw error;
                 }
@@ -184,16 +332,19 @@ export class DeliveryHistoryService {
     }
 
     static async bulkUpdateDeliveryHistory(deliveryHistoryData: Array<{
-        id: string, otherUnitPriceMapping: {
+        id: string
+    } & Partial<NewDeliveryHistory & {
+        "latestUnitPriceData": {
             unitId: string;
-            price: number;
-            quantity: number;
+            pricePerQuantity: number;
         }[]
-    } & Partial<NewDeliveryHistory>>) {
+    }>>) {
         const updatedDeliveryHistories = await db.transaction(async (tx) => {
             const results = [];
             const stocksToAdd: NewStock[] = [];
             const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number }> = [];
+            // Aggregate client-provided unit prices per product-maintains key
+            const clientUnitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
 
             for (const item of deliveryHistoryData) {
                 const { id, ...updateData } = item;
@@ -201,6 +352,7 @@ export class DeliveryHistoryService {
                 // Check if delivery history exists
                 const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
                 if (existingDeliveryHistory.length === 0) {
+                    console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: delivery history not found", { id });
                     tx.rollback();
                 }
 
@@ -211,6 +363,7 @@ export class DeliveryHistoryService {
                     ...(updateData.sentQuantity && { sentQuantity: parseFloat(updateData.sentQuantity.toFixed(3)) }),
                     ...(updateData.receivedQuantity && { receivedQuantity: parseFloat(updateData.receivedQuantity.toFixed(3)) }),
                     ...(updateData.orderedQuantity && { orderedQuantity: parseFloat(updateData.orderedQuantity.toFixed(3)) }),
+                    ...(updateData.latestUnitPriceData && { latestUnitPriceData: updateData.latestUnitPriceData }),
                     updatedAt: getCurrentDate()
                 };
 
@@ -243,14 +396,17 @@ export class DeliveryHistoryService {
                         pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
                         quantity: parseFloat(updated.receivedQuantity.toFixed(3))
                     };
-                    const otherUnitStockData: NewStock[] = updateData.otherUnitPriceMapping.map((item) => ({
-                        maintainsId: updated.maintainsId,
-                        productId: updated.productId,
-                        unitId: item.unitId,
-                        pricePerQuantity: parseFloat(item.price.toFixed(2)),
-                        quantity: parseFloat(item.quantity.toFixed(3))
-                    }));
-                    stocksToAdd.push(stockData, ...otherUnitStockData);
+                    stocksToAdd.push(stockData);
+                    // Capture client-provided latestUnitPriceData for this record
+                    if (Array.isArray((updateData as any).latestUnitPriceData) && (updateData as any).latestUnitPriceData.length > 0) {
+                        const key = `${updated.productId}-${updated.maintainsId}`;
+                        const incoming = (updateData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[];
+                        if (!clientUnitPricesByKey[key]) clientUnitPricesByKey[key] = [];
+                        for (const up of incoming) {
+                            const idx = clientUnitPricesByKey[key].findIndex(p => p.unitId === up.unitId);
+                            if (idx >= 0) clientUnitPricesByKey[key][idx] = up; else clientUnitPricesByKey[key].push(up);
+                        }
+                    }
                 }
 
                 // If status is being updated to 'Return-Completed', prepare stock data to reduce
@@ -267,25 +423,110 @@ export class DeliveryHistoryService {
                 results.push(updated);
             }
 
-            // If there are stocks to add, call bulkCreateOrAddStockWithTx
+            // If there are stocks to add, update latest batch or create new when prices differ
             if (stocksToAdd.length > 0) {
                 try {
                     console.log("stocks are adding", stocksToAdd)
-                    await StockService.bulkCreateOrAddStockWithTx(stocksToAdd, tx);
+                    // Group stocks by product and maintains for batch update
+                    const stockGroups = stocksToAdd.reduce((groups, stock) => {
+                        const key = `${stock.productId}-${stock.maintainsId}`;
+                        if (!groups[key]) {
+                            groups[key] = [];
+                        }
+                        groups[key].push(stock);
+                        return groups;
+                    }, {} as Record<string, NewStock[]>);
+
+                    // Track unit prices used per group for latestUnitPriceData
+                    const unitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
+
+                    // Update latest batch for each product-maintains combination
+                    for (const [key, stocks] of Object.entries(stockGroups)) {
+                        // Resolve product's main unit and select matching stock as main unit reference
+                        const [productRow] = await tx
+                            .select({ mainUnitId: productTable.mainUnitId })
+                            .from(productTable)
+                            .where(eq(productTable.id, stocks[0].productId));
+                        const mainUnitId = productRow?.mainUnitId;
+                        const mainStock = mainUnitId ? stocks.find(s => s.unitId === mainUnitId) : undefined;
+                        if (!mainStock) {
+                            console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: main unit stock not found", {
+                                key,
+                                productId: stocks[0].productId,
+                                maintainsId: stocks[0].maintainsId,
+                                mainUnitId
+                            });
+                            tx.rollback();
+                            throw new Error(`Main unit stock not found for product ${stocks[0].productId}`);
+                        }
+                        // Collect unit prices: prefer client-provided latestUnitPriceData for this key
+                        const clientUnitPrices = clientUnitPricesByKey[key];
+                        const unitPrices = Array.isArray(clientUnitPrices) && clientUnitPrices.length > 0
+                            ? clientUnitPrices
+                            : stocks.map(stock => ({
+                                unitId: stock.unitId,
+                                pricePerQuantity: stock.pricePerQuantity
+                            }));
+
+                        unitPricesByKey[key] = unitPrices;
+                        await StockBatchService.updateLatestBatchByProductAndMaintains(
+                            mainStock.productId,
+                            mainStock.maintainsId,
+                            {
+                                mainUnitQuantity: mainStock.quantity,
+                                unitPrices: unitPrices,
+                                productionDate: getCurrentDate()
+                            }
+                        );
+                    }
+
+                    // Update latestUnitPriceData for updated Order-Completed records
+                    for (const updated of results) {
+                        if (updated.status === 'Order-Completed') {
+                            const key = `${updated.productId}-${updated.maintainsId}`;
+                            const data = unitPricesByKey[key] ?? [{ unitId: updated.unitId, pricePerQuantity: updated.pricePerQuantity }];
+                            await tx.update(deliveryHistoryTable)
+                                .set({ latestUnitPriceData: data })
+                                .where(eq(deliveryHistoryTable.id, updated.id));
+                        }
+                    }
                 } catch (error) {
-                    // If stock creation fails, rollback the entire transaction
+                    // If stock update fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToAdd", { error });
                     tx.rollback();
                     throw error;
                 }
             }
 
-            // If there are stocks to reduce, call bulkReduceStockWithTx
+            // If there are stocks to reduce, use StockBatchService instead of old proportional logic
             if (stocksToReduce.length > 0) {
                 try {
                     console.log("stocks are reducing", stocksToReduce)
-                    await StockService.bulkReduceStockWithTx(stocksToReduce, tx);
+
+                    // Process each stock reduction using the new stock batch system
+                    for (const stockReduction of stocksToReduce) {
+                        // Find the specific stock record that matches the criteria
+                        const [stockRecord] = await tx
+                            .select()
+                            .from(stockTable)
+                            .where(
+                                and(
+                                    eq(stockTable.maintainsId, stockReduction.maintainsId),
+                                    eq(stockTable.productId, stockReduction.productId),
+                                    eq(stockTable.unitId, stockReduction.unitId)
+                                )
+                            );
+
+                        if (!stockRecord) {
+                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
+                        }
+
+                        // Use StockBatchService to process the reduction properly
+                        await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
+                    }
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
+                    console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToReduce", { error });
                     tx.rollback();
                     throw error;
                 }
@@ -302,6 +543,7 @@ export class DeliveryHistoryService {
             // Check if delivery history exists
             const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
             if (existingDeliveryHistory.length === 0) {
+                console.error("[DeliveryHistoryService#delete] Rolling back: delivery history not found", { id });
                 tx.rollback();
             }
 

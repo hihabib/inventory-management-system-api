@@ -5,9 +5,10 @@ const router = Router();
 
 router
     .delete('/:id', ProductController.deleteProduct)
-    .put('/', ProductController.updateProduct)
+    .put('/with-units', ProductController.updateProductWithUnits)
+    .get('/:id/unit-conversions', ProductController.getProductUnitConversions)
     .get('/:id', ProductController.getProductById)
-    .post('/', ProductController.createProduct)
+    .post('/with-units', ProductController.createProductWithUnits)
     .get('/', ProductController.getProducts)
 
 

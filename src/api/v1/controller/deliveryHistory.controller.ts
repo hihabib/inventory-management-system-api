@@ -8,7 +8,9 @@ import { sendResponse } from "../utils/response";
 
 export class DeliveryHistoryController {
     static createDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
-        const deliveryHistoryData = req.body as NewDeliveryHistory[];
+        const deliveryHistoryData = req.body as Array<NewDeliveryHistory & {
+            latestUnitPriceData?: { unitId: string; pricePerQuantity: number }[]
+        }>;
 
 
         // Add createdBy to each item from authenticated user
@@ -51,19 +53,22 @@ export class DeliveryHistoryController {
 
     static updateDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const deliveryHistoryData = req.body as Partial<NewDeliveryHistory>;
+        const deliveryHistoryData = req.body as Partial<NewDeliveryHistory & {
+            latestUnitPriceData?: { unitId: string; pricePerQuantity: number }[]
+        }>;
         const updatedDeliveryHistory = await DeliveryHistoryService.updateDeliveryHistory(id, deliveryHistoryData);
         sendResponse(res, 200, 'Transaction updated successfully', updatedDeliveryHistory);
     })
 
     static bulkUpdateDeliveryHistory = requestHandler(async (req: AuthRequest, res: Response) => {
         const deliveryHistoryData = req.body as Array<{
-            id: string, otherUnitPriceMapping: {
+            id: string
+        } & Partial<NewDeliveryHistory & {
+            "latestUnitPriceData": {
                 unitId: string;
-                price: number;
-                quantity: number;
+                pricePerQuantity: number;
             }[]
-        } & Partial<NewDeliveryHistory>>;
+        }>>;
         const updatedDeliveryHistories = await DeliveryHistoryService.bulkUpdateDeliveryHistory(deliveryHistoryData);
         sendResponse(res, 200, 'Transactions updated successfully', updatedDeliveryHistories);
     })

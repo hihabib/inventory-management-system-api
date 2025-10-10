@@ -1,4 +1,4 @@
-import { integer, numeric, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 import { maintainsTable } from "./maintains";
 import { productTable } from "./product";
 import { unitTable } from "./unit";
@@ -33,6 +33,7 @@ export const deliveryHistoryTable = pgTable("delivery_history", {
     orderedAt: timestamp('ordered_at', { withTimezone: true }),
     receivedAt: timestamp('received_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    latestUnitPriceData: jsonb('latest_unit_price_data').$type<Array<{ unitId: string; pricePerQuantity: number }>>().default([]).notNull(),
 })
 
 export type DeliveryHistoryTable = typeof deliveryHistoryTable.$inferSelect;

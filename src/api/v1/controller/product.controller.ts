@@ -7,35 +7,44 @@ import { sendResponse } from "../utils/response";
 import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
 
 export class ProductController {
-    static createProduct = requestHandler(async (req: AuthRequest, res: Response) => {
+    static createProductWithUnits = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id: userId } = req.user
-        const { name, bengaliName, sku, lowStockThreshold, mainUnitId, categoriesId, unitsId } = req.body as NewProduct & { unitsId: string[], categoriesId: string[] };
-        const createdProduct = await ProductService.createProduct({
+        const { name, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions } = req.body as NewProduct & { 
+            unitConversions: Array<{ unitId: string; conversionFactor: number }>, 
+            categoriesId: string[] 
+        };
+        const createdProduct = await ProductService.createProductWithUnits({
             name,
             bengaliName,
             sku,
             lowStockThreshold,
             mainUnitId,
+            defaultOrderUnit,
             categoriesId,
-            unitsId,
+            unitConversions,
             createdBy: userId,
         });
-        sendResponse(res, 201, 'Product created successfully', createdProduct);
+        sendResponse(res, 201, 'Product created with units successfully', createdProduct);
     })
 
-    static updateProduct = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { name, id, bengaliName, sku, lowStockThreshold, mainUnitId, categoriesId, unitsId } = req.body as Partial<NewProduct> & { id: string, unitsId?: string[], categoriesId?: string[] };
-        const createdProduct = await ProductService.updateProduct({
+    static updateProductWithUnits = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { name, id, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions } = req.body as Partial<NewProduct> & { 
+            id: string, 
+            unitConversions?: Array<{ unitId: string; conversionFactor: number }>, 
+            categoriesId?: string[] 
+        };
+        const updatedProduct = await ProductService.updateProductWithUnits({
             id,
             name,
             bengaliName,
             sku,
             lowStockThreshold,
             mainUnitId,
+            defaultOrderUnit,
             categoriesId,
-            unitsId
+            unitConversions
         });
-        sendResponse(res, 201, 'Product updated successfully', createdProduct);
+        sendResponse(res, 200, 'Product updated with units successfully', updatedProduct);
     })
 
     static getProducts = requestHandler(async (req: AuthRequest, res: Response) => {
@@ -47,12 +56,13 @@ export class ProductController {
     static getProductById = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const product = await ProductService.getProductById(id);
-        
-        if (!product) {
-            return sendResponse(res, 404, 'Product not found', null);
-        }
-        
         sendResponse(res, 200, 'Product fetched successfully', product);
+    })
+
+    static getProductUnitConversions = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        const unitConversions = await ProductService.getProductUnitConversions(id);
+        sendResponse(res, 200, 'Product unit conversions fetched successfully', unitConversions);
     })
 
     static deleteProduct = requestHandler(async (req: AuthRequest, res: Response) => {
