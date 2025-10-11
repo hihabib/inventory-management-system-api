@@ -5,6 +5,9 @@ import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/f
 import { StockService } from "./stock.service";
 import { StockBatchService } from "./stockBatch.service";
 import { NewStock, stockTable } from "../drizzle/schema/stock";
+import { unitConversionTable } from "../drizzle/schema/unitConversion";
+import { stockBatchTable } from "../drizzle/schema/stockBatch";
+import { randomUUID } from "crypto";
 import { getCurrentDate } from "../utils/timezone";
 import { productTable } from "../drizzle/schema/product";
 
@@ -13,6 +16,7 @@ export class DeliveryHistoryService {
         return await db.transaction(async (tx) => {
             const stocksToAdd: NewStock[] = [];
             const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number }> = [];
+            const stocksToReplace: Array<{ maintainsId: string, productId: string, unitId: string, pricePerQuantity: number, quantity: number, latestUnitPriceData?: Array<{ unitId: string; pricePerQuantity: number }> }> = [];
 
             // Apply decimal precision formatting to each delivery history item
             const formattedData = deliveryHistoryData.map(item => {
@@ -41,7 +45,11 @@ export class DeliveryHistoryService {
                     formatted.cancelledAt = null;
                 } else if (item.status === "Order-Cancelled") {
                     formatted.cancelledAt = getCurrentDate();
-                }
+                } else if (item.status === "Reset-Requested" || item.status === "Reset-Completed") {
+                    formatted.sentAt = getCurrentDate();
+                } 
+
+
 
                 return formatted;
             });
@@ -71,6 +79,18 @@ export class DeliveryHistoryService {
                         quantity: created.receivedQuantity
                     };
                     stocksToReduce.push(stockReduction);
+                }
+
+                // If status is 'Reset-Completed', prepare stock data to replace
+                if (created.status === 'Reset-Completed') {
+                    stocksToReplace.push({
+                        maintainsId: created.maintainsId,
+                        productId: created.productId,
+                        unitId: created.unitId,
+                        pricePerQuantity: created.pricePerQuantity,
+                        quantity: created.sentQuantity,
+                        latestUnitPriceData: created.latestUnitPriceData
+                    });
                 }
             }
 
@@ -192,6 +212,93 @@ export class DeliveryHistoryService {
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#create] Rolling back during stocksToReduce", { error });
+                    tx.rollback();
+                    throw error;
+                }
+            }
+
+            // If there are stocks to replace, remove all old stock and create new batch using provided latestUnitPriceData
+            if (stocksToReplace.length > 0) {
+                try {
+                    console.log("stocks are replacing", stocksToReplace);
+
+                    // Group by product-maintains key
+                    const replaceGroups = stocksToReplace.reduce((groups, item) => {
+                        const key = `${item.productId}-${item.maintainsId}`;
+                        if (!groups[key]) groups[key] = [];
+                        groups[key].push(item);
+                        return groups;
+                    }, {} as Record<string, typeof stocksToReplace>);
+
+                    for (const [key, items] of Object.entries(replaceGroups)) {
+                        const { productId, maintainsId } = items[0];
+                        // Use the last item for quantity/unitId reference (assumes one per group)
+                        const reference = items[items.length - 1];
+
+                        // Get product and unit conversions
+                        const [product] = await tx.select().from(productTable).where(eq(productTable.id, productId));
+                        if (!product || !product.mainUnitId) {
+                            console.error("[DeliveryHistoryService#create] Rolling back: product or main unit not found for replace", { productId });
+                            tx.rollback();
+                            throw new Error(`Product or main unit not found for product ${productId}`);
+                        }
+
+                        const unitConversions = await tx.select().from(unitConversionTable).where(eq(unitConversionTable.productId, productId));
+                        const mainConv = unitConversions.find(uc => uc.unitId === product.mainUnitId);
+                        const refConv = unitConversions.find(uc => uc.unitId === reference.unitId);
+                        if (!mainConv || !refConv) {
+                            console.error("[DeliveryHistoryService#create] Rolling back: unit conversion not found for replace", { productId, mainUnitId: product.mainUnitId, refUnitId: reference.unitId });
+                            tx.rollback();
+                            throw new Error(`Unit conversion not found for product ${productId}`);
+                        }
+
+                        // Compute main unit quantity from provided unit quantity (can be zero)
+                        const mainUnitQuantity = Number((reference.quantity * (mainConv.conversionFactor / refConv.conversionFactor)).toFixed(3));
+
+                        // Remove all existing stocks and batches for this product-maintains
+                        await tx.delete(stockTable)
+                            .where(and(eq(stockTable.productId, productId), eq(stockTable.maintainsId, maintainsId)));
+                        await tx.delete(stockBatchTable)
+                            .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)));
+
+                        // Use client-provided latestUnitPriceData for unit prices; validate completeness only for non-zero main quantity
+                        const unitPrices = (reference.latestUnitPriceData ?? []).slice();
+                        if (mainUnitQuantity > 0) {
+                            for (const uc of unitConversions) {
+                                if (!unitPrices.find(up => up.unitId === uc.unitId)) {
+                                    throw new Error(`Price not provided for unit ${uc.unitId} in latestUnitPriceData for product ${productId}`);
+                                }
+                            }
+                        }
+
+                        // If mainUnitQuantity is zero, do not create a new batch; instead ensure any zero-quantity units are removed
+                        if (mainUnitQuantity > 0) {
+                            // Create a new batch with provided prices and computed main unit quantity
+                            await StockBatchService.addNewStockBatch({
+                                productId,
+                                maintainsId,
+                                batchNumber: randomUUID(),
+                                productionDate: getCurrentDate(),
+                                mainUnitQuantity,
+                                unitPrices
+                            });
+                        } else {
+                            // No stock should remain; ensure all stock entries removed for this product-maintains
+                            await tx.delete(stockTable)
+                                .where(and(eq(stockTable.productId, productId), eq(stockTable.maintainsId, maintainsId)));
+                            await tx.delete(stockBatchTable)
+                                .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)));
+                        }
+
+                        // Update latestUnitPriceData for all Reset-Completed records in this group
+                        for (const item of items) {
+                            await tx.update(deliveryHistoryTable)
+                                .set({ latestUnitPriceData: unitPrices })
+                                .where(eq(deliveryHistoryTable.id, (createdDeliveryHistories.find(d => d.productId === item.productId && d.maintainsId === item.maintainsId && d.status === 'Reset-Completed' && d.unitId === item.unitId)?.id) ?? item.productId));
+                        }
+                    }
+                } catch (error) {
+                    console.error("[DeliveryHistoryService#create] Rolling back during stocksToReplace", { error });
                     tx.rollback();
                     throw error;
                 }

@@ -11,7 +11,9 @@ export const DeliveryStatus = pgEnum("delivery_status", [
     "Order-Cancelled",
     "Return-Placed",
     "Return-Completed",
-    "Return-Cancelled"
+    "Return-Cancelled",
+    "Reset-Requested",
+    "Reset-Completed"
 ])
 export const deliveryHistoryTable = pgTable("delivery_history", {
     id: uuid('id').defaultRandom().primaryKey(),
