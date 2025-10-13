@@ -252,7 +252,7 @@ export class DeliveryHistoryService {
                             throw new Error(`Unit conversion not found for product ${productId}`);
                         }
 
-                        // Compute main unit quantity from provided unit quantity (can be zero)
+                        // Compute main unit quantity from provided unit quantity
                         const mainUnitQuantity = Number((reference.quantity * (mainConv.conversionFactor / refConv.conversionFactor)).toFixed(3));
 
                         // Remove all existing stocks and batches for this product-maintains
@@ -261,34 +261,23 @@ export class DeliveryHistoryService {
                         await tx.delete(stockBatchTable)
                             .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)));
 
-                        // Use client-provided latestUnitPriceData for unit prices; validate completeness only for non-zero main quantity
+                        // Use client-provided latestUnitPriceData for unit prices; validate completeness
                         const unitPrices = (reference.latestUnitPriceData ?? []).slice();
-                        if (mainUnitQuantity > 0) {
-                            for (const uc of unitConversions) {
-                                if (!unitPrices.find(up => up.unitId === uc.unitId)) {
-                                    throw new Error(`Price not provided for unit ${uc.unitId} in latestUnitPriceData for product ${productId}`);
-                                }
+                        for (const uc of unitConversions) {
+                            if (!unitPrices.find(up => up.unitId === uc.unitId)) {
+                                throw new Error(`Price not provided for unit ${uc.unitId} in latestUnitPriceData for product ${productId}`);
                             }
                         }
 
-                        // If mainUnitQuantity is zero, do not create a new batch; instead ensure any zero-quantity units are removed
-                        if (mainUnitQuantity > 0) {
-                            // Create a new batch with provided prices and computed main unit quantity
-                            await StockBatchService.addNewStockBatch({
-                                productId,
-                                maintainsId,
-                                batchNumber: randomUUID(),
-                                productionDate: getCurrentDate(),
-                                mainUnitQuantity,
-                                unitPrices
-                            });
-                        } else {
-                            // No stock should remain; ensure all stock entries removed for this product-maintains
-                            await tx.delete(stockTable)
-                                .where(and(eq(stockTable.productId, productId), eq(stockTable.maintainsId, maintainsId)));
-                            await tx.delete(stockBatchTable)
-                                .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)));
-                        }
+                        // Create a new batch with provided prices and computed main unit quantity
+                        await StockBatchService.addNewStockBatch({
+                            productId,
+                            maintainsId,
+                            batchNumber: randomUUID(),
+                            productionDate: getCurrentDate(),
+                            mainUnitQuantity,
+                            unitPrices
+                        }, tx);
 
                         // Update latestUnitPriceData for all Reset-Completed records in this group
                         for (const item of items) {

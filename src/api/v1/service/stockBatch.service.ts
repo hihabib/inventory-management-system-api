@@ -24,10 +24,10 @@ export class StockBatchService {
         productionDate?: Date;
         mainUnitQuantity: number;
         unitPrices: Array<{ unitId: string; pricePerQuantity: number }>;
-    }) {
+    }, txArg?: any) {
         console.log('🚀 [StockBatchService] Starting addNewStockBatch with data:', JSON.stringify(batchData, null, 2));
 
-        return await db.transaction(async (tx) => {
+        const runAdd = async (tx: any) => {
             console.log('📦 [StockBatchService] Creating stock batch for product:', batchData.productId);
 
             // Get product information including mainUnitId
@@ -43,71 +43,12 @@ export class StockBatchService {
 
             console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
 
-            // Check and remove empty stock batches for this product and outlet before creating new batch
-            console.log('🧹 [StockBatchService] Checking for empty stock batches to cleanup...');
-            
+            // Clean up empty stock batches using centralized helper before creating new batch
             try {
-                // Find all stock batches for this product and outlet
-                const existingBatches = await tx.select({
-                    id: stockBatchTable.id,
-                    batchNumber: stockBatchTable.batchNumber
-                })
-                .from(stockBatchTable)
-                .where(and(
-                    eq(stockBatchTable.productId, batchData.productId),
-                    eq(stockBatchTable.maintainsId, batchData.maintainsId)
-                ));
-
-                console.log('📊 [StockBatchService] Found', existingBatches.length, 'existing batches for this product-outlet combination');
-
-                const emptyBatchesToRemove = [];
-
-                // Check each batch for empty stock
-                for (const batch of existingBatches) {
-                    const stockEntries = await tx.select({
-                        id: stockTable.id,
-                        quantity: stockTable.quantity
-                    })
-                    .from(stockTable)
-                    .where(eq(stockTable.stockBatchId, batch.id));
-
-                    const totalQuantity = stockEntries.reduce((sum, stock) => sum + stock.quantity, 0);
-                    
-                    if (totalQuantity === 0) {
-                        emptyBatchesToRemove.push({
-                            batchId: batch.id,
-                            batchNumber: batch.batchNumber,
-                            stockIds: stockEntries.map(s => s.id)
-                        });
-                        console.log('🗑️ [StockBatchService] Found empty batch to remove:', batch.batchNumber, 'with total quantity:', totalQuantity);
-                    }
-                }
-
-                // Remove empty batches and their stock entries
-                if (emptyBatchesToRemove.length > 0) {
-                    console.log('🧹 [StockBatchService] Removing', emptyBatchesToRemove.length, 'empty batches...');
-                    
-                    for (const emptyBatch of emptyBatchesToRemove) {
-                        // First, delete all stock entries for this batch
-                        if (emptyBatch.stockIds.length > 0) {
-                            await tx.delete(stockTable)
-                                .where(inArray(stockTable.id, emptyBatch.stockIds));
-                            console.log('✅ [StockBatchService] Deleted', emptyBatch.stockIds.length, 'stock entries for batch:', emptyBatch.batchNumber);
-                        }
-
-                        // Then, delete the batch itself
-                        await tx.delete(stockBatchTable)
-                            .where(eq(stockBatchTable.id, emptyBatch.batchId));
-                        console.log('✅ [StockBatchService] Deleted empty batch:', emptyBatch.batchNumber);
-                    }
-                    
-                    console.log('🎉 [StockBatchService] Successfully cleaned up', emptyBatchesToRemove.length, 'empty batches');
-                } else {
-                    console.log('✨ [StockBatchService] No empty batches found to cleanup');
-                }
+                await StockBatchService.cleanupEmptyStockBatches(batchData.productId, batchData.maintainsId, tx);
             } catch (cleanupError) {
                 console.error('❌ [StockBatchService] Error during empty batch cleanup:', cleanupError);
-                throw new Error(`Failed to cleanup empty batches: ${cleanupError.message}`);
+                // Do not block batch creation due to cleanup; proceed
             }
 
             // Get all unit conversions for this product
@@ -196,7 +137,13 @@ export class StockBatchService {
                 batch: stockBatch,
                 stocks: stockResults
             };
-        });
+        };
+
+        if (txArg) {
+            return await runAdd(txArg);
+        }
+
+        return await db.transaction(runAdd);
     }
 
     /**
@@ -1037,7 +984,7 @@ export class StockBatchService {
                     productionDate: updateData.productionDate || getCurrentDate(),
                     mainUnitQuantity: updateData.mainUnitQuantity,
                     unitPrices: updateData.unitPrices
-                });
+                }, tx);
             }
 
             console.log('✅ [StockBatchService] Latest batch found:', latestBatch);
@@ -1080,7 +1027,7 @@ export class StockBatchService {
                         productionDate: updateData.productionDate || getCurrentDate(),
                         mainUnitQuantity: updateData.mainUnitQuantity,
                         unitPrices: updateData.unitPrices
-                    });
+                    }, tx);
                 }
             }
 
@@ -1390,10 +1337,10 @@ export class StockBatchService {
      * Clean up empty stock batches for a product in a specific outlet
      * Removes stock batches that have all stock quantities at 0, but only if there are other batches with stock > 0
      */
-    static async cleanupEmptyStockBatches(productId: string, maintainsId: string) {
+    static async cleanupEmptyStockBatches(productId: string, maintainsId: string, txArg?: any) {
         console.log('🧹 [StockBatchService] Starting cleanup for product:', productId, 'in outlet:', maintainsId);
 
-        return await db.transaction(async (tx) => {
+        const runCleanup = async (tx: any) => {
             // Get all stock batches for this product in this outlet
             const stockBatches = await tx.select({
                 batchId: stockBatchTable.id,
@@ -1450,15 +1397,7 @@ export class StockBatchService {
             console.log('📈 [StockBatchService] Batches with stock:', batchesWithStock.length);
             console.log('📉 [StockBatchService] Empty batches:', emptyBatches.length);
 
-            // Only remove empty batches if there are other batches with stock
-            if (batchesWithStock.length === 0) {
-                console.log('⚠️ [StockBatchService] No batches with stock found, keeping all empty batches');
-                return { 
-                    cleanedBatches: [], 
-                    message: 'No cleanup performed - no batches with stock available' 
-                };
-            }
-
+            // If no empty batches, nothing to do
             if (emptyBatches.length === 0) {
                 console.log('✅ [StockBatchService] No empty batches found, no cleanup needed');
                 return { 
@@ -1467,10 +1406,41 @@ export class StockBatchService {
                 };
             }
 
-            // Remove empty batches (both stock entries and batch records)
+            // Determine which empty batches to delete according to policy:
+            // - If at least one batch has stock, delete all empty batches.
+            // - If all batches are empty, keep exactly one empty batch (latest created) and delete the rest.
+            let batchesToDelete = emptyBatches;
+            let keepBatchId: string | null = null;
+
+            if (batchesWithStock.length === 0) {
+                // All batches are empty: keep one empty batch (latest created) and delete the rest
+                if (emptyBatches.length > 1) {
+                    // Load createdAt for deterministic selection
+                    const emptiesWithMeta = await Promise.all(emptyBatches.map(async (b) => {
+                        const [row] = await tx
+                            .select({ id: stockBatchTable.id, createdAt: stockBatchTable.createdAt, batchNumber: stockBatchTable.batchNumber })
+                            .from(stockBatchTable)
+                            .where(eq(stockBatchTable.id, b.batchId));
+                        return { ...b, createdAt: row?.createdAt ?? new Date(0), batchNumber: row?.batchNumber ?? b.batchNumber };
+                    }));
+
+                    emptiesWithMeta.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
+                    const toKeep = emptiesWithMeta[0];
+                    keepBatchId = toKeep.batchId;
+                    batchesToDelete = emptiesWithMeta.slice(1);
+                    console.log('📦 [StockBatchService] Keeping one zero-quantity batch (latest):', toKeep.batchNumber, toKeep.batchId);
+                } else {
+                    // Only one empty batch: keep it, delete none
+                    batchesToDelete = [];
+                }
+            } else {
+                console.log('📦 [StockBatchService] Batches with stock exist; will remove all zero-quantity batches');
+            }
+
+            // Remove selected empty batches (both stock entries and batch records)
             const cleanedBatches = [];
 
-            for (const emptyBatch of emptyBatches) {
+            for (const emptyBatch of batchesToDelete) {
                 console.log('🗑️ [StockBatchService] Removing empty batch:', emptyBatch.batchNumber);
 
                 // First, delete all stock entries for this batch
@@ -1499,14 +1469,21 @@ export class StockBatchService {
                 console.log('✅ [StockBatchService] Successfully removed batch:', emptyBatch.batchNumber);
             }
 
-            console.log('🎉 [StockBatchService] Cleanup completed. Removed', cleanedBatches.length, 'empty batches');
+            console.log('🎉 [StockBatchService] Cleanup completed. Removed', cleanedBatches.length, 'empty batches', keepBatchId ? `; kept ${keepBatchId}` : '');
 
             return {
                 cleanedBatches,
                 message: `Successfully cleaned up ${cleanedBatches.length} empty batches`,
-                remainingBatchesWithStock: batchesWithStock.length
+                remainingBatchesWithStock: batchesWithStock.length,
+                keptZeroBatchId: keepBatchId
             };
-        });
+        };
+
+        if (txArg) {
+            return await runCleanup(txArg);
+        }
+
+        return await db.transaction(runCleanup);
     }
 
     /**

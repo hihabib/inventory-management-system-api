@@ -42,12 +42,9 @@ export class DeliveryHistoryController {
                 return sendResponse(res, 400, 'Return quantity, and sent date are required for Return-Placed status', null);
             }
 
-            // For Reset-Completed/Reset-Requested, allow zero quantity (means remove stock) but require field presence
-            if (item.status === "Reset-Completed" || item.status === "Reset-Requested") {
-                if (item.sentQuantity === undefined || item.sentQuantity === null) {
-                    return sendResponse(res, 400, 'sentQuantity must be provided for Reset-Completed or Reset-Requested status', null);
-                }
-                // Zero is allowed here and indicates stock removal; no error
+            // For Reset statuses, allow 0 quantity; only error if missing (undefined)
+            if ((item.status === "Reset-Completed" || item.status === "Reset-Requested") && item.sentQuantity === undefined) {
+                return sendResponse(res, 400, 'sent quantity is required for Reset-Completed or Reset-Requested status', null);
             }
 
 
