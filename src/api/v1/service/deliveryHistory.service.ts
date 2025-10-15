@@ -10,6 +10,8 @@ import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { randomUUID } from "crypto";
 import { getCurrentDate } from "../utils/timezone";
 import { productTable } from "../drizzle/schema/product";
+import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
+import { productCategoryTable } from "../drizzle/schema/productCategory";
 
 export class DeliveryHistoryService {
     static async createDeliveryHistory(deliveryHistoryData: NewDeliveryHistory[]) {
@@ -656,6 +658,21 @@ export class DeliveryHistoryService {
         pagination: PaginationOptions = {},
         filter: FilterOptions = {}
     ) {
+        // Expand productCategory.id filter to include child categories
+        let modifiedFilter = { ...filter };
+        if (filter && (filter as any)['productCategory.id']) {
+            const categoryIds = Array.isArray((filter as any)['productCategory.id'])
+                ? (filter as any)['productCategory.id']
+                : [(filter as any)['productCategory.id']];
+
+            const allCategoryIds = new Set<string>(categoryIds as string[]);
+            for (const categoryId of categoryIds as string[]) {
+                const childCategories = await DeliveryHistoryService.getAllChildCategories(categoryId);
+                childCategories.forEach(id => allCategoryIds.add(id));
+            }
+
+            (modifiedFilter as any)['productCategory.id'] = Array.from(allCategoryIds);
+        }
         // filter with createdAt current date if no date filter is selected
         // if (!filter?.['orderedAt[from]']
         //     && !filter?.['sentAt[from]']
@@ -671,13 +688,23 @@ export class DeliveryHistoryService {
 
         return await filterWithPaginate(deliveryHistoryTable, {
             pagination,
-            filter,
+            filter: modifiedFilter,
             joins: [
                 {
                     table: productTable,
                     type: "right",
                     alias: "product",
                     condition: eq(deliveryHistoryTable.productId, productTable.id)
+                },
+                {
+                    table: productCategoryInProductTable,
+                    alias: "productCategoryInProduct",
+                    condition: eq(productCategoryInProductTable.productId, productTable.id)
+                },
+                {
+                    table: productCategoryTable,
+                    alias: "productCategory",
+                    condition: eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id)
                 }
             ],
             select: { ...deliveryHistoryTable },
@@ -695,5 +722,24 @@ export class DeliveryHistoryService {
     static async getDeliveryHistoryById(id: string) {
         const [deliveryHistory] = await db.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
         return deliveryHistory;
+    }
+
+    /**
+     * Recursively get all child category IDs for a given parent category ID
+     * Mirrors ProductService.getAllChildCategories
+     */
+    private static async getAllChildCategories(parentCategoryId: string): Promise<string[]> {
+        const childCategories = await db
+            .select({ id: productCategoryTable.id })
+            .from(productCategoryTable)
+            .where(eq(productCategoryTable.parentId, parentCategoryId));
+
+        const childIds: string[] = [];
+        for (const child of childCategories) {
+            childIds.push(child.id);
+            const grandChildren = await this.getAllChildCategories(child.id);
+            childIds.push(...grandChildren);
+        }
+        return childIds;
     }
 }

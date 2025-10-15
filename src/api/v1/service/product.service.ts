@@ -396,12 +396,39 @@ export class ProductService {
             }
         }));
 
+        // Compute lastOrderHistory for all Maintains of type 'Outlet' at the DB level
+        const lastOrderHistoryResult = await db.execute(sql`
+            SELECT COALESCE(
+                jsonb_object_agg(
+                    m.name,
+                    jsonb_build_object(
+                        'quantity', dh.ordered_quantity,
+                        'unit', dh.ordered_unit,
+                        'orderedAt', to_char(COALESCE(dh.ordered_at, dh.created_at), 'YYYY-MM-DD HH24:MI:SS')
+                    )
+                ) FILTER (WHERE dh.id IS NOT NULL),
+                '{}'::jsonb
+            ) AS last_order_history
+            FROM maintains m
+            LEFT JOIN LATERAL (
+                SELECT dh.*
+                FROM delivery_history dh
+                WHERE dh.product_id = ${id}::uuid
+                  AND dh.maintains_id = m.id
+                ORDER BY COALESCE(dh.ordered_at, dh.created_at) DESC
+                LIMIT 1
+            ) dh ON true
+            WHERE m.type = 'Outlet'
+        `);
+        const lastOrderHistory = (lastOrderHistoryResult?.rows?.[0]?.last_order_history) ?? {};
+
         return {
             ...productDetail,
             stocks: stockByMaintain,
             categories,
             units, // Add all associated units to the response
-            unitConversions: unitConversionsFormatted // Add unit conversions to the response
+            unitConversions: unitConversionsFormatted, // Add unit conversions to the response
+            lastOrderHistory
         };
     }
 
@@ -501,6 +528,45 @@ export class ProductService {
 
         // Step 2: Get stock information for these products
         const productIds = productsResult.list.map(p => p.id);
+
+        // Compute lastOrderHistory for each productId using DB-level aggregation
+        const lastOrderByProduct: Record<string, any> = {};
+        if (productIds.length > 0) {
+            const idsList = sql`${sql.join(productIds.map(id => sql`${id}::uuid`), sql`,`)}`;
+            const lastOrderAllResult = await db.execute(sql`
+                WITH dh_latest AS (
+                    SELECT DISTINCT ON (dh.product_id, dh.maintains_id)
+                        dh.product_id,
+                        dh.maintains_id,
+                        dh.ordered_quantity,
+                        dh.ordered_unit,
+                        COALESCE(dh.ordered_at, dh.created_at) AS ordered_ts
+                    FROM delivery_history dh
+                    JOIN maintains m ON m.id = dh.maintains_id AND m.type = 'Outlet'
+                    WHERE dh.product_id IN (${idsList})
+                    ORDER BY dh.product_id, dh.maintains_id, COALESCE(dh.ordered_at, dh.created_at) DESC
+                )
+                SELECT 
+                    dl.product_id,
+                    COALESCE(
+                        jsonb_object_agg(
+                            m.name,
+                            jsonb_build_object(
+                                'quantity', dl.ordered_quantity,
+                                'unit', dl.ordered_unit,
+                                'orderedAt', to_char(dl.ordered_ts, 'YYYY-MM-DD HH24:MI:SS')
+                            )
+                        ),
+                        '{}'::jsonb
+                    ) AS last_order_history
+                FROM dh_latest dl
+                JOIN maintains m ON m.id = dl.maintains_id
+                GROUP BY dl.product_id
+            `);
+            for (const row of lastOrderAllResult.rows as Array<{ product_id: string; last_order_history: any }>) {
+                lastOrderByProduct[row.product_id] = row.last_order_history ?? {};
+            }
+        }
         const stockInfo = await db
             .select({
                 id: stockTable.id,
@@ -620,7 +686,8 @@ export class ProductService {
                 stocks: stockByMaintain,
                 categories: productCategories,
                 units: productUnits,
-                unitConversions: productUnitConversions
+                unitConversions: productUnitConversions,
+                lastOrderHistory: lastOrderByProduct[product.id] ?? {}
             };
         });
 
