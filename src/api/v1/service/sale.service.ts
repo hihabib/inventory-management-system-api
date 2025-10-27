@@ -1,9 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, and, gte, lte, sum, sql } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable } from "../drizzle/schema/customerDue";
 import { PaymentMethod, paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { saleTable } from "../drizzle/schema/sale";
+import { productTable } from "../drizzle/schema/product";
+import { unitTable } from "../drizzle/schema/unit";
+import { unitConversionTable } from "../drizzle/schema/unitConversion";
+import { deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
+import { stockTable } from "../drizzle/schema/stock";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
 import { StockBatchService } from "./stockBatch.service";
 
@@ -73,6 +78,80 @@ export class SaleService {
                     const formattedSaleAmount = Number(saleAmount.toFixed(2));
                     const formattedPricePerUnit = Number(product.price_per_quantity.toFixed(2));
 
+                    // Calculate quantity in main unit
+                    let quantityInMainUnit: number | null = null;
+                    let mainUnitPrice: number | null = null;
+                    
+                    try {
+                        // Get product's main unit
+                        const [productInfo] = await tx.select({
+                            mainUnitId: productTable.mainUnitId
+                        })
+                        .from(productTable)
+                        .where(eq(productTable.id, product.productId));
+
+                        if (productInfo?.mainUnitId) {
+                            // Get main unit name
+                            const [mainUnit] = await tx.select({
+                                name: unitTable.name
+                            })
+                            .from(unitTable)
+                            .where(eq(unitTable.id, productInfo.mainUnitId));
+
+                            if (mainUnit) {
+                                // Check if sale unit is the same as product's main unit
+                                if (product.unit === mainUnit.name) {
+                                    // Direct conversion: sale quantity is already in main unit
+                                    quantityInMainUnit = formattedSaleQuantity;
+                                } else {
+                                    // Need to convert using unit conversion table
+                                    // First, get the unit ID for the sale unit name
+                                    const [saleUnit] = await tx.select({
+                                        id: unitTable.id
+                                    })
+                                    .from(unitTable)
+                                    .where(eq(unitTable.name, product.unit));
+
+                                    if (saleUnit) {
+                                        // Get the conversion factor
+                                        const [conversion] = await tx.select({
+                                            conversionFactor: unitConversionTable.conversionFactor
+                                        })
+                                        .from(unitConversionTable)
+                                        .where(and(
+                                            eq(unitConversionTable.productId, product.productId),
+                                            eq(unitConversionTable.unitId, saleUnit.id)
+                                        ));
+
+                                        if (conversion) {
+                                            // Convert to main unit: saleQuantity / conversionFactor
+                                            quantityInMainUnit = Number((formattedSaleQuantity / conversion.conversionFactor).toFixed(3));
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Get main unit price from stock table
+                            const [stockPrice] = await tx.select({
+                                pricePerQuantity: stockTable.pricePerQuantity
+                            })
+                            .from(stockTable)
+                            .where(and(
+                                eq(stockTable.productId, product.productId),
+                                eq(stockTable.maintainsId, saleData.maintainsId),
+                                eq(stockTable.unitId, productInfo.mainUnitId),
+                                eq(stockTable.stockBatchId, product.stockBatchId)
+                            ));
+
+                            if (stockPrice) {
+                                mainUnitPrice = Number(stockPrice.pricePerQuantity.toFixed(2));
+                            }
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to calculate quantity in main unit for product ${product.productId}:`, error);
+                        // Continue with null value for quantityInMainUnit
+                    }
+
                     // Create sale record
                     const [sale] = await tx.insert(saleTable).values({
                         createdBy: userId,
@@ -87,7 +166,9 @@ export class SaleService {
                         saleQuantity: formattedSaleQuantity,
                         saleAmount: formattedSaleAmount,
                         pricePerUnit: formattedPricePerUnit,
-                        unit: product.unit
+                        unit: product.unit,
+                        quantityInMainUnit: quantityInMainUnit,
+                        mainUnitPrice: mainUnitPrice
                     }).returning();
 
                     saleIds.push(sale.id);
@@ -244,5 +325,170 @@ export class SaleService {
     static async getSaleById(id: string) {
         const [sale] = await db.select().from(saleTable).where(eq(saleTable.id, id));
         return sale;
+    }
+
+    static async getDailyReportData(date: string, maintainsId: string) {
+        try {
+            // Parse the date and create 24-hour range
+            const startDate = new Date(date);
+            const endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() + 1);
+
+            // 1. Fetch Order-Completed delivery history records
+            const orderCompletedData = await db
+                .select({
+                    productId: deliveryHistoryTable.productId,
+                    productName: productTable.name,
+                    unitName: unitTable.name,
+                    orderCompletedQuantity: deliveryHistoryTable.sentQuantity
+                })
+                .from(deliveryHistoryTable)
+                .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+                .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
+                .where(
+                    and(
+                        eq(deliveryHistoryTable.maintainsId, maintainsId),
+                        eq(deliveryHistoryTable.status, "Order-Completed"),
+                        gte(deliveryHistoryTable.sentAt, startDate),
+                        lte(deliveryHistoryTable.sentAt, endDate)
+                    )
+                );
+
+            // 2. Fetch Return-Completed delivery history records
+            const returnCompletedData = await db
+                .select({
+                    productId: deliveryHistoryTable.productId,
+                    productName: productTable.name,
+                    unitName: unitTable.name,
+                    returnCompletedQuantity: deliveryHistoryTable.sentQuantity
+                })
+                .from(deliveryHistoryTable)
+                .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+                .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
+                .where(
+                    and(
+                        eq(deliveryHistoryTable.maintainsId, maintainsId),
+                        eq(deliveryHistoryTable.status, "Return-Completed"),
+                        gte(deliveryHistoryTable.sentAt, startDate),
+                        lte(deliveryHistoryTable.sentAt, endDate)
+                    )
+                );
+
+            // 3. Fetch aggregated sale data
+            const saleData = await db
+                .select({
+                    productId: saleTable.productId,
+                    productName: productTable.name,
+                    mainUnitName: unitTable.name,
+                    totalSoldQuantity: sql<number>`COALESCE(SUM(${saleTable.quantityInMainUnit}), 0)`,
+                    totalSaleAmount: sum(saleTable.saleAmount),
+                    avgMainUnitPrice: sql<number>`COALESCE(AVG(${saleTable.mainUnitPrice}), 0)`
+                })
+                .from(saleTable)
+                .innerJoin(productTable, eq(saleTable.productId, productTable.id))
+                .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+                .where(
+                    and(
+                        eq(saleTable.maintainsId, maintainsId),
+                        gte(saleTable.createdAt, startDate),
+                        lte(saleTable.createdAt, endDate)
+                    )
+                )
+                .groupBy(saleTable.productId, productTable.name, unitTable.name);
+
+            // 4. Get all products with their main unit names to ensure no null mainUnitName
+            const allProductsWithMainUnit = await db
+                .select({
+                    productId: productTable.id,
+                    productName: productTable.name,
+                    mainUnitName: unitTable.name
+                })
+                .from(productTable)
+                .innerJoin(unitTable, eq(productTable.mainUnitId, unitTable.id));
+
+            // 5. Combine all results grouped by productId
+            const combinedResults = new Map<string, any>();
+
+            // Process order completed data
+            orderCompletedData.forEach(item => {
+                if (!combinedResults.has(item.productId)) {
+                    combinedResults.set(item.productId, {
+                        productId: item.productId,
+                        productName: item.productName,
+                        orderedCompletedQuantity: 0,
+                        returnedCompletedQuantity: 0,
+                        totalSoldQuantity: 0,
+                        mainUnitName: null,
+                        mainUnitPrice: 0,
+                        totalSaleAmount: 0
+                    });
+                }
+                const existing = combinedResults.get(item.productId);
+                existing.orderedCompletedQuantity += Number(item.orderCompletedQuantity) || 0;
+            });
+
+            // Process return completed data
+            returnCompletedData.forEach(item => {
+                if (!combinedResults.has(item.productId)) {
+                    combinedResults.set(item.productId, {
+                        productId: item.productId,
+                        productName: item.productName,
+                        orderedCompletedQuantity: 0,
+                        returnedCompletedQuantity: 0,
+                        totalSoldQuantity: 0,
+                        mainUnitName: null,
+                        mainUnitPrice: 0,
+                        totalSaleAmount: 0
+                    });
+                }
+                const existing = combinedResults.get(item.productId);
+                existing.returnedCompletedQuantity += Number(item.returnCompletedQuantity) || 0;
+            });
+
+            // Process sale data
+            saleData.forEach(item => {
+                if (!combinedResults.has(item.productId)) {
+                    combinedResults.set(item.productId, {
+                        productId: item.productId,
+                        productName: item.productName,
+                        orderedCompletedQuantity: 0,
+                        returnedCompletedQuantity: 0,
+                        totalSoldQuantity: 0,
+                        mainUnitName: null,
+                        mainUnitPrice: 0,
+                        totalSaleAmount: 0
+                    });
+                }
+                const existing = combinedResults.get(item.productId);
+                existing.totalSoldQuantity = Number(item.totalSoldQuantity) || 0;
+                existing.mainUnitName = item.mainUnitName;
+                existing.mainUnitPrice = Number(item.avgMainUnitPrice) || 0;
+                existing.totalSaleAmount = Number(item.totalSaleAmount) || 0;
+            });
+
+            // 6. Ensure all products have mainUnitName populated
+            const productMainUnitMap = new Map<string, { productName: string; mainUnitName: string }>();
+            allProductsWithMainUnit.forEach(product => {
+                productMainUnitMap.set(product.productId, {
+                    productName: product.productName,
+                    mainUnitName: product.mainUnitName
+                });
+            });
+
+            // Update combinedResults to ensure mainUnitName is never null
+            combinedResults.forEach((result, productId) => {
+                const productInfo = productMainUnitMap.get(productId);
+                if (productInfo && !result.mainUnitName) {
+                    result.mainUnitName = productInfo.mainUnitName;
+                }
+            });
+
+            // Convert map to array and return
+            return Array.from(combinedResults.values());
+
+        } catch (error) {
+            console.error("Error fetching daily report data:", error);
+            throw new Error("Failed to fetch daily report data");
+        }
     }
 }

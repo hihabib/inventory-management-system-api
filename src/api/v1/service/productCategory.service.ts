@@ -71,12 +71,16 @@ export class ProductCategoryService {
                     .where(eq(productCategoryTable.parentId, id));
             }
 
-            // Delete the product category
-            const [deleted] = await tx.delete(productCategoryTable)
+            // Soft delete the product category
+            const [softDeleted] = await tx.update(productCategoryTable)
+                .set({
+                    isDeleted: true,
+                    deletedAt: new Date()
+                })
                 .where(eq(productCategoryTable.id, id))
                 .returning();
 
-            return deleted;
+            return softDeleted;
         });
     }
 
@@ -84,7 +88,13 @@ export class ProductCategoryService {
         pagination: PaginationOptions = {},
         filter?: FilterOptions
     ) {
-        return await filterWithPaginate(productCategoryTable, { pagination, filter });
+        return await filterWithPaginate(productCategoryTable, {
+            pagination,
+            filter: {
+                ...filter,
+                'isDeleted': [false]
+            }
+        });
     }
 
     static async getProductCategoryById(id: string) {

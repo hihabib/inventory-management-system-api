@@ -9,7 +9,7 @@ export const stockTable = pgTable("stock", {
     createdAt: timestamp('created_at', {withTimezone: true}).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).notNull().defaultNow(),
     unitId: uuid('unit_id').references(() => unitTable.id).notNull(),
-    productId: uuid('product_id').references(() => productTable.id).notNull(),
+    productId: uuid('product_id').references(() => productTable.id, { onDelete: 'set null' }),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     stockBatchId: uuid('stock_batch_id').references(() => stockBatchTable.id),
     pricePerQuantity: numeric('price_per_quantity', { mode: 'number', scale: 2}).notNull(),

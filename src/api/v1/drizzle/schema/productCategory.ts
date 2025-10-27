@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, timestamp, uuid, varchar } from "drizzle-orm/pg-core";
 
 export const productCategoryTable = pgTable("product_category", {
     id: uuid().defaultRandom().primaryKey(),
@@ -6,7 +6,9 @@ export const productCategoryTable = pgTable("product_category", {
     updatedAt: timestamp("updated_at", {withTimezone: true}).defaultNow().notNull(),
     name: varchar().notNull(),
     description: text(),
-    parentId: uuid('parent_id').references(() => productCategoryTable.id).default(null)
+    parentId: uuid('parent_id').references(() => productCategoryTable.id).default(null),
+    isDeleted: boolean('is_deleted').notNull().default(false),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
 })
 
 export type ProductCategoryTable = typeof productCategoryTable.$inferSelect;

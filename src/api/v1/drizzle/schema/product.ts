@@ -1,4 +1,4 @@
-import { numeric, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, numeric, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { userTable } from './user';
 import { unitTable } from './unit';
 
@@ -13,7 +13,9 @@ export const productTable = pgTable('product', {
     sku: varchar().default("").unique(),
     mainUnitId: uuid('main_unit_id').references(() => unitTable.id),
     // Default order unit identifier or label; optional, defaults to empty string
-    defaultOrderUnit: varchar('default_order_unit').default("")
+    defaultOrderUnit: varchar('default_order_unit').default(""),
+    isDeleted: boolean('is_deleted').default(false).notNull(),
+    deletedAt: timestamp('deleted_at', {withTimezone: true}),
 });
 
 export type ProductTable = typeof productTable.$inferSelect;

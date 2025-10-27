@@ -13,7 +13,7 @@ export const saleTable = pgTable('sale', {
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     customerCategoryId: uuid('customer_category_id').references(() => customerCategoryTable.id).default(null),
     customerId: uuid('customer_id').references(() => customerTable.id).default(null),
-    productId: uuid('product_id').references(() => productTable.id).notNull(),
+    productId: uuid('product_id').references(() => productTable.id, { onDelete: 'set null' }),
     productName: varchar('product_name').notNull(),
     discountType: discountTypeEnum('discount_type').default('Fixed').notNull(),
     discountAmount: numeric('discount_amount', {mode: 'number', scale: 2}).default(0).notNull(),
@@ -22,6 +22,8 @@ export const saleTable = pgTable('sale', {
     saleAmount: numeric('sale_amount', { mode: 'number', scale: 2 }).notNull(),
     pricePerUnit: numeric('price_per_unit', { mode: 'number', scale: 2 }).notNull(),
     unit: varchar('unit', { length: 20 }).notNull(),
+    quantityInMainUnit: numeric('quantity_in_main_unit', { mode: 'number', scale: 3 }),
+    mainUnitPrice: numeric('main_unit_price', { mode: 'number', scale: 2 }),
 })
 
 export type SaleTable = typeof saleTable.$inferSelect;

@@ -236,20 +236,21 @@ export class ProductService {
                 throw new Error(`Product with id ${productId} not found`);
             }
 
-            // Delete related records in unitInProductTable
-            await tx.delete(unitInProductTable)
-                .where(eq(unitInProductTable.productId, productId));
+            // Set quantity to 0 for related stock entries
+            await tx.update(stockTable)
+                .set({ quantity: 0 })
+                .where(eq(stockTable.productId, productId));
 
-            // Delete related records in productCategoryInProductTable
-            await tx.delete(productCategoryInProductTable)
-                .where(eq(productCategoryInProductTable.productId, productId));
-
-            // Delete the product
-            const [deletedProduct] = await tx.delete(productTable)
+// Soft delete the product
+            const [softDeletedProduct] = await tx.update(productTable)
+                .set({
+                    isDeleted: true,
+                    deletedAt: new Date()
+                })
                 .where(eq(productTable.id, productId))
                 .returning();
 
-            return deletedProduct;
+            return softDeletedProduct;
         });
     }
 
@@ -459,7 +460,10 @@ export class ProductService {
         // Step 1: Get products with main unit
         const productsResult = await filterWithPaginate(productTable, {
             pagination,
-            filter: modifiedFilter,
+            filter: {
+                'isDeleted': [false],
+                ...modifiedFilter,
+            },
             orderBy: asc(productTable.sku),
             joins: [
                 {

@@ -143,4 +143,33 @@ export class SaleController {
             return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to retrieve sale");
         }
     });
+
+    static getDailyReportData = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { date, maintains_id } = req.query;
+        
+        // Validate required parameters
+        if (!date || !maintains_id) {
+            return sendResponse(res, 400, "Both 'date' and 'maintains_id' query parameters are required");
+        }
+
+        // Validate date format (ISO format)
+        const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/;
+        if (!dateRegex.test(date as string)) {
+            return sendResponse(res, 400, "Invalid date format. Please use ISO format (e.g., 2025-10-26T18:00:00.000Z)");
+        }
+
+        // Validate maintains_id format (should be UUID)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(maintains_id as string)) {
+            return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
+        }
+
+        try {
+            const reportData = await SaleService.getDailyReportData(date as string, maintains_id as string);
+            return sendResponse(res, 200, "Daily report data retrieved successfully", reportData);
+        } catch (error) {
+            console.error("Error retrieving daily report data:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to retrieve daily report data");
+        }
+    });
 }

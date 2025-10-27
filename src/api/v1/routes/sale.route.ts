@@ -9,6 +9,9 @@ router.post("/", SaleController.createSale);
 // GET /api/v1/sales - Get all sales with pagination and filtering
 router.get("/", SaleController.getSales);
 
+// GET /api/v1/sales/getDailyReportData - Get daily report data
+router.get("/getDailyReportData", SaleController.getDailyReportData);
+
 // GET /api/v1/sales/:id - Get sale by ID
 router.get("/:id", SaleController.getSaleById);
 

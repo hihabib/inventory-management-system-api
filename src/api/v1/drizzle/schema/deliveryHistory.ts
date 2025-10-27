@@ -23,7 +23,7 @@ export const deliveryHistoryTable = pgTable("delivery_history", {
     status: DeliveryStatus('status').default("Order-Shipped"),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     unitId: uuid('unit_id').references(() => unitTable.id).notNull(),
-    productId: uuid('product_id').references(() => productTable.id).notNull(),
+    productId: uuid('product_id').references(() => productTable.id, { onDelete: 'set null' }),
     pricePerQuantity: numeric('price_per_quantity', { mode: 'number', scale: 2 }).notNull(),
     sentQuantity: numeric('sent_quantity', { mode: 'number', scale: 3 }).notNull(),
     receivedQuantity: numeric('received_quantity', { mode: 'number', scale: 3 }).notNull(),
