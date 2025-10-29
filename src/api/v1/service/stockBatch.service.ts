@@ -207,7 +207,7 @@ export class StockBatchService {
             );
 
             if (quantityInSaleUnit < quantityToReduce) {
-                throw new Error(`Insufficient stock. Available: ${quantityInSaleUnit} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
+                throw new Error(`Insufficient stock for product "${product.name}". Available: ${quantityInSaleUnit} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
             }
 
             // Update all units in the batch proportionally based on main unit reduction
@@ -295,7 +295,7 @@ export class StockBatchService {
             );
 
             if (totalAvailableInSaleUnit < quantityToReduce) {
-                throw new Error(`Insufficient stock. Available: ${totalAvailableInSaleUnit} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
+                throw new Error(`Insufficient stock for product "${product.name}". Available: ${totalAvailableInSaleUnit} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
             }
 
             let remainingToReduce = mainUnitQuantityToReduce;
@@ -396,7 +396,7 @@ export class StockBatchService {
 
             if (newQuantity < 0) {
                 throw new Error(
-                    `Insufficient stock in unit ${stock.unitId}. Available: ${stock.quantity}, Required: ${reductionForThisUnit}`
+                    `Insufficient stock for product "${product.name}" in unit ${stock.unitId}. Available: ${stock.quantity}, Required: ${reductionForThisUnit}`
                 );
             }
 
@@ -1297,7 +1297,7 @@ export class StockBatchService {
                 const totalAvailableInMainUnit = stockEntries.reduce((sum, stock) => sum + stock.quantity, 0);
 
                 if (totalAvailableInMainUnit < batchData.totalMainUnitReduction) {
-                    throw new Error(`Insufficient stock in batch ${stockBatchId}. Available: ${totalAvailableInMainUnit} main units, Required: ${batchData.totalMainUnitReduction} main units`);
+                    throw new Error(`Insufficient stock in batch ${stockBatchId} for product "${product!.name}". Available: ${totalAvailableInMainUnit} main units, Required: ${batchData.totalMainUnitReduction} main units`);
                 }
 
                 // Apply the total reduction to all units in the batch (only once per batch)

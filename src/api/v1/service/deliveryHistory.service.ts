@@ -205,7 +205,7 @@ export class DeliveryHistoryService {
                             );
 
                         if (!stockRecord) {
-                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
+                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId} in maintains ${stockReduction.maintainsId}. Cannot process return completion during bulk update.`);
                         }
 
                         // Use StockBatchService to process the reduction properly
@@ -306,6 +306,7 @@ export class DeliveryHistoryService {
             if (existingDeliveryHistory.length === 0) {
                 console.error("[DeliveryHistoryService#update] Rolling back: delivery history not found", { id });
                 tx.rollback();
+                throw new Error(`Delivery history with ID '${id}' not found. Please verify the delivery history ID and try again.`);
             }
 
             // Apply decimal precision formatting
@@ -381,7 +382,7 @@ export class DeliveryHistoryService {
                     // If stock creation fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#update] Rolling back during Order-Completed stock add", { id, stockData, error });
                     tx.rollback();
-                    throw error;
+                    throw new Error(`Failed to add stock for completed order. Product: ${stockData.productId}, Unit: ${stockData.unitId}. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
             }
 
@@ -410,7 +411,7 @@ export class DeliveryHistoryService {
                         );
 
                     if (!stockRecord) {
-                        throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
+                        throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}. Cannot process return completion.`);
                     }
 
                     // Use StockBatchService to process the reduction properly
@@ -419,7 +420,7 @@ export class DeliveryHistoryService {
                     // If stock reduction fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#update] Rolling back during Return-Completed stock reduce", { id, stockReduction, error });
                     tx.rollback();
-                    throw error;
+                    throw new Error(`Failed to reduce stock for completed return. Product: ${stockReduction.productId}, Unit: ${stockReduction.unitId}. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
             }
 
@@ -452,6 +453,7 @@ export class DeliveryHistoryService {
                 if (existingDeliveryHistory.length === 0) {
                     console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: delivery history not found", { id });
                     tx.rollback();
+                    throw new Error(`Delivery history with ID '${id}' not found during bulk update. Please verify all delivery history IDs and try again.`);
                 }
 
                 // Apply decimal precision formatting
@@ -555,7 +557,7 @@ export class DeliveryHistoryService {
                                 mainUnitId
                             });
                             tx.rollback();
-                            throw new Error(`Main unit stock not found for product ${stocks[0].productId}`);
+                            throw new Error(`Main unit stock not found for product ${stocks[0].productId} in maintains ${stocks[0].maintainsId}. Expected main unit: ${mainUnitId}. Cannot complete bulk order processing.`);
                         }
                         // Collect unit prices: prefer client-provided latestUnitPriceData for this key
                         const clientUnitPrices = clientUnitPricesByKey[key];
@@ -592,7 +594,7 @@ export class DeliveryHistoryService {
                     // If stock update fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToAdd", { error });
                     tx.rollback();
-                    throw error;
+                    throw new Error(`Failed to process stock additions for completed orders during bulk update. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
             }
 
@@ -626,7 +628,7 @@ export class DeliveryHistoryService {
                     // If stock reduction fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToReduce", { error });
                     tx.rollback();
-                    throw error;
+                    throw new Error(`Failed to process stock reductions for completed returns during bulk update. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
             }
 

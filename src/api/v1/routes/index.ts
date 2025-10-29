@@ -14,6 +14,7 @@ import paymentRoutes from './payment.route'
 import dashboardRoutes from './dashboard.route'
 import deliveryHistoryRoutes from './deliveryHistory.route'
 import stockBatchRoutes from './stockBatch.route'
+import customerDueRoutes from '../route/customerDue.route'
 const router = Router();
 
 router.use("/users", userRoutes);
@@ -30,5 +31,6 @@ router.use("/sales", [authMiddleware], saleRoutes);
 router.use("/payments", [authMiddleware], paymentRoutes);
 router.use("/dashboard", [authMiddleware], dashboardRoutes);
 router.use("/delivery-histories", [authMiddleware], deliveryHistoryRoutes);
+router.use("/customer-due", customerDueRoutes);
 
 export default router;
