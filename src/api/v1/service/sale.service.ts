@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, sum, sql } from "drizzle-orm";
+import { eq, and, gte, lte, sum, sql, inArray, lt, gt } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable } from "../drizzle/schema/customerDue";
 import { PaymentMethod, paymentTable } from "../drizzle/schema/payment";
@@ -9,6 +9,9 @@ import { unitTable } from "../drizzle/schema/unit";
 import { unitConversionTable } from "../drizzle/schema/unitConversion";
 import { deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { stockTable } from "../drizzle/schema/stock";
+import { dailyStockRecordTable } from "../drizzle/schema/dailyStockRecord";
+import { productCategoryTable } from "../drizzle/schema/productCategory";
+import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
 import { StockBatchService } from "./stockBatch.service";
 
@@ -327,12 +330,50 @@ export class SaleService {
         return sale;
     }
 
+    // Helper function to get all category IDs including children recursively
+    public static async getAllCategoryIds(targetCategoryId: string): Promise<string[]> {
+        const categoryIds = new Set<string>();
+        const toProcess = [targetCategoryId];
+        
+        while (toProcess.length > 0) {
+            const currentId = toProcess.pop()!;
+            if (categoryIds.has(currentId)) continue;
+            
+            categoryIds.add(currentId);
+            
+            // Find all child categories
+            const children = await db
+                .select({ id: productCategoryTable.id })
+                .from(productCategoryTable)
+                .where(eq(productCategoryTable.parentId, currentId));
+            
+            children.forEach(child => {
+                if (!categoryIds.has(child.id)) {
+                    toProcess.push(child.id);
+                }
+            });
+        }
+        
+        return Array.from(categoryIds);
+    }
+
     static async getDailyReportData(date: string, maintainsId: string) {
         try {
-            // Parse the date and create 24-hour range
-            const startDate = new Date(date);
-            const endDate = new Date(startDate);
-            endDate.setDate(endDate.getDate() + 1);
+            // Parse the input date (which represents start of day in Dhaka time as UTC)
+            const inputDate = new Date(date);
+            
+            // The input date is already the start of the day in Dhaka time (converted to UTC)
+            // For example: "2025-10-29T18:00:00.000Z" = Oct 30, 2025 00:00:00 Dhaka time
+            const startDate = new Date(inputDate);
+            
+            // Create end date: add 24 hours to get the end of the day in Dhaka time
+            const endDate = new Date(inputDate.getTime() + 24 * 60 * 60 * 1000);
+            
+            console.log(`Date filtering: Input=${date}, Start=${startDate.toISOString()}, End=${endDate.toISOString()}`);
+
+            // Get all category IDs (including children) for filtering
+            const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
+            const allCategoryIds = await this.getAllCategoryIds(targetCategoryId);
 
             // 1. Fetch Order-Completed delivery history records
             const orderCompletedData = await db
@@ -340,17 +381,20 @@ export class SaleService {
                     productId: deliveryHistoryTable.productId,
                     productName: productTable.name,
                     unitName: unitTable.name,
-                    orderCompletedQuantity: deliveryHistoryTable.sentQuantity
+                    orderCompletedQuantity: deliveryHistoryTable.sentQuantity,
+                    sku: productTable.sku
                 })
                 .from(deliveryHistoryTable)
                 .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
                 .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
+                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Order-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
-                        lte(deliveryHistoryTable.sentAt, endDate)
+                        lte(deliveryHistoryTable.sentAt, endDate),
+                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 );
 
@@ -360,17 +404,20 @@ export class SaleService {
                     productId: deliveryHistoryTable.productId,
                     productName: productTable.name,
                     unitName: unitTable.name,
-                    returnCompletedQuantity: deliveryHistoryTable.sentQuantity
+                    returnCompletedQuantity: deliveryHistoryTable.sentQuantity,
+                    sku: productTable.sku
                 })
                 .from(deliveryHistoryTable)
                 .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
                 .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
+                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
-                        lte(deliveryHistoryTable.sentAt, endDate)
+                        lte(deliveryHistoryTable.sentAt, endDate),
+                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 );
 
@@ -382,109 +429,235 @@ export class SaleService {
                     mainUnitName: unitTable.name,
                     totalSoldQuantity: sql<number>`COALESCE(SUM(${saleTable.quantityInMainUnit}), 0)`,
                     totalSaleAmount: sum(saleTable.saleAmount),
-                    avgMainUnitPrice: sql<number>`COALESCE(AVG(${saleTable.mainUnitPrice}), 0)`
+                    avgMainUnitPrice: sql<number>`COALESCE(AVG(${saleTable.mainUnitPrice}), 0)`,
+                    sku: productTable.sku
                 })
                 .from(saleTable)
                 .innerJoin(productTable, eq(saleTable.productId, productTable.id))
                 .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(saleTable.maintainsId, maintainsId),
                         gte(saleTable.createdAt, startDate),
-                        lte(saleTable.createdAt, endDate)
+                        lte(saleTable.createdAt, endDate),
+                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 )
-                .groupBy(saleTable.productId, productTable.name, unitTable.name);
+                .groupBy(saleTable.productId, productTable.name, unitTable.name, productTable.sku);
 
-            // 4. Get all products with their main unit names to ensure no null mainUnitName
+            // 4. Get all products with their main unit names filtered by category
             const allProductsWithMainUnit = await db
                 .select({
                     productId: productTable.id,
                     productName: productTable.name,
-                    mainUnitName: unitTable.name
+                    mainUnitName: unitTable.name,
+                    sku: productTable.sku
                 })
                 .from(productTable)
-                .innerJoin(unitTable, eq(productTable.mainUnitId, unitTable.id));
+                .innerJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
+                .where(inArray(productCategoryInProductTable.productCategoryId, allCategoryIds));
 
-            // 5. Combine all results grouped by productId
+            // 6. Gather keys for filtering stock data
+            const productIds = new Set<string>();
+            const unitNames = new Set<string>();
+
+            // Collect productIds and unitNames from saleData
+            saleData.forEach(item => {
+                productIds.add(item.productId);
+                if (item.mainUnitName) {
+                    unitNames.add(item.mainUnitName);
+                }
+            });
+
+            // Collect productIds and unitNames from allProductsWithMainUnit
+            allProductsWithMainUnit.forEach(item => {
+                productIds.add(item.productId);
+                if (item.mainUnitName) {
+                    unitNames.add(item.mainUnitName);
+                }
+            });
+
+            const productIdsArray = Array.from(productIds);
+            const unitNamesArray = Array.from(unitNames);
+
+            // 6. Fetch aggregated stock data from daily_stock_record 
+            const stockAggregates = await db
+                .select({
+                    productId: dailyStockRecordTable.productId,
+                    unitName: unitTable.name,
+                    totalQuantity: sql<number>`SUM(${dailyStockRecordTable.quantity})`,
+                    totalPrice: sql<number>`SUM(${dailyStockRecordTable.quantity} * ${dailyStockRecordTable.pricePerQuantity})`
+                })
+                .from(dailyStockRecordTable)
+                .innerJoin(unitTable, eq(dailyStockRecordTable.unitId, unitTable.id))
+                .where(
+                    and(
+                        eq(dailyStockRecordTable.maintainsId, maintainsId),
+                        gt(dailyStockRecordTable.createdAt, startDate),
+                        lt(dailyStockRecordTable.createdAt, endDate),
+                        inArray(dailyStockRecordTable.productId, productIdsArray),
+                        inArray(unitTable.name, unitNamesArray)
+                    )
+                )
+                .groupBy(dailyStockRecordTable.productId, unitTable.name);
+
+            // 6.1. Fetch current stock data as fallback for mainUnitPrice
+            const currentStockData = await db
+                .select({
+                    productId: stockTable.productId,
+                    unitName: unitTable.name,
+                    avgPricePerQuantity: sql<number>`AVG(${stockTable.pricePerQuantity})`
+                })
+                .from(stockTable)
+                .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
+                .where(
+                    and(
+                        eq(stockTable.maintainsId, maintainsId),
+                        inArray(stockTable.productId, productIdsArray),
+                        inArray(unitTable.name, unitNamesArray)
+                    )
+                )
+                .groupBy(stockTable.productId, unitTable.name);
+
+            // 7. Create lookup maps for stock data and current stock prices
+            const stockMap = new Map<string, { totalQuantity: number; totalPrice: number }>();
+            stockAggregates.forEach(record => {
+                const compositeKey = `${record.productId}::${record.unitName}`;
+                stockMap.set(compositeKey, {
+                    totalQuantity: Number(record.totalQuantity) || 0,
+                    totalPrice: Number(record.totalPrice) || 0
+                });
+            });
+
+            const currentStockPriceMap = new Map<string, number>();
+            currentStockData.forEach(record => {
+                const compositeKey = `${record.productId}::${record.unitName}`;
+                currentStockPriceMap.set(compositeKey, Number(record.avgPricePerQuantity) || 0);
+            });
+
+            // 8. Start with ALL products as base dataset
             const combinedResults = new Map<string, any>();
+
+            // Initialize ALL products first
+            allProductsWithMainUnit.forEach(product => {
+                combinedResults.set(product.productId, {
+                    productId: product.productId,
+                    productName: product.productName,
+                    orderedCompletedQuantity: 0,
+                    returnedCompletedQuantity: 0,
+                    totalSoldQuantity: 0,
+                    mainUnitName: product.mainUnitName,
+                    mainUnitPrice: 0,
+                    totalSaleAmount: 0,
+                    sku: product.sku,
+                    previousStockQuantity: 0,
+                    previousStockTotalPrice: 0
+                });
+            });
 
             // Process order completed data
             orderCompletedData.forEach(item => {
-                if (!combinedResults.has(item.productId)) {
-                    combinedResults.set(item.productId, {
-                        productId: item.productId,
-                        productName: item.productName,
-                        orderedCompletedQuantity: 0,
-                        returnedCompletedQuantity: 0,
-                        totalSoldQuantity: 0,
-                        mainUnitName: null,
-                        mainUnitPrice: 0,
-                        totalSaleAmount: 0
-                    });
-                }
                 const existing = combinedResults.get(item.productId);
-                existing.orderedCompletedQuantity += Number(item.orderCompletedQuantity) || 0;
+                if (existing) {
+                    existing.orderedCompletedQuantity += Number(item.orderCompletedQuantity) || 0;
+                }
             });
 
             // Process return completed data
             returnCompletedData.forEach(item => {
-                if (!combinedResults.has(item.productId)) {
-                    combinedResults.set(item.productId, {
-                        productId: item.productId,
-                        productName: item.productName,
-                        orderedCompletedQuantity: 0,
-                        returnedCompletedQuantity: 0,
-                        totalSoldQuantity: 0,
-                        mainUnitName: null,
-                        mainUnitPrice: 0,
-                        totalSaleAmount: 0
-                    });
-                }
                 const existing = combinedResults.get(item.productId);
-                existing.returnedCompletedQuantity += Number(item.returnCompletedQuantity) || 0;
+                if (existing) {
+                    existing.returnedCompletedQuantity += Number(item.returnCompletedQuantity) || 0;
+                }
             });
 
             // Process sale data
             saleData.forEach(item => {
-                if (!combinedResults.has(item.productId)) {
-                    combinedResults.set(item.productId, {
-                        productId: item.productId,
-                        productName: item.productName,
-                        orderedCompletedQuantity: 0,
-                        returnedCompletedQuantity: 0,
-                        totalSoldQuantity: 0,
-                        mainUnitName: null,
-                        mainUnitPrice: 0,
-                        totalSaleAmount: 0
-                    });
-                }
                 const existing = combinedResults.get(item.productId);
-                existing.totalSoldQuantity = Number(item.totalSoldQuantity) || 0;
-                existing.mainUnitName = item.mainUnitName;
-                existing.mainUnitPrice = Number(item.avgMainUnitPrice) || 0;
-                existing.totalSaleAmount = Number(item.totalSaleAmount) || 0;
-            });
+                if (existing) {
+                    existing.totalSoldQuantity = Number(item.totalSoldQuantity) || 0;
+                    existing.mainUnitPrice = Number(item.avgMainUnitPrice) || 0;
+                    existing.totalSaleAmount = Number(item.totalSaleAmount) || 0;
 
-            // 6. Ensure all products have mainUnitName populated
-            const productMainUnitMap = new Map<string, { productName: string; mainUnitName: string }>();
-            allProductsWithMainUnit.forEach(product => {
-                productMainUnitMap.set(product.productId, {
-                    productName: product.productName,
-                    mainUnitName: product.mainUnitName
-                });
-            });
-
-            // Update combinedResults to ensure mainUnitName is never null
-            combinedResults.forEach((result, productId) => {
-                const productInfo = productMainUnitMap.get(productId);
-                if (productInfo && !result.mainUnitName) {
-                    result.mainUnitName = productInfo.mainUnitName;
+                    // Populate stock data from stockMap
+                    if (item.mainUnitName) {
+                        const compositeKey = `${item.productId}::${item.mainUnitName}`;
+                        const stockData = stockMap.get(compositeKey);
+                        if (stockData) {
+                            existing.previousStockQuantity = stockData.totalQuantity;
+                            existing.previousStockTotalPrice = stockData.totalPrice;
+                        }
+                    }
                 }
+            });
+
+            // 9. Populate stock data and fallback mainUnitPrice for all products
+            combinedResults.forEach((result, productId) => {
+                const compositeKey = `${productId}::${result.mainUnitName}`;
+                
+                // Always try to populate stock data if not already set
+                if (result.previousStockQuantity === 0 && result.previousStockTotalPrice === 0) {
+                    const stockData = stockMap.get(compositeKey);
+                    if (stockData) {
+                        result.previousStockQuantity = stockData.totalQuantity;
+                        result.previousStockTotalPrice = stockData.totalPrice;
+                    }
+                }
+                
+                // If no mainUnitPrice from sales, try to get it from stock data
+                if (result.mainUnitPrice === 0 && result.mainUnitName) {
+                    const stockData = stockMap.get(compositeKey);
+                    if (stockData && stockData.totalQuantity > 0) {
+                        // Calculate average price from daily stock if available
+                        result.mainUnitPrice = stockData.totalPrice / stockData.totalQuantity;
+                    }
+                    
+                    // If still no price, try current stock data as final fallback
+                    if (result.mainUnitPrice === 0) {
+                        const currentStockPrice = currentStockPriceMap.get(compositeKey);
+                        if (currentStockPrice && currentStockPrice > 0) {
+                            result.mainUnitPrice = currentStockPrice;
+                        }
+                    }
+                }
+            });
+
+            // Convert map to array and apply custom SKU sorting
+            const finalResults = Array.from(combinedResults.values());
+            
+            finalResults.sort((a, b) => {
+                const skuA = a.sku || '';
+                const skuB = b.sku || '';
+                
+                // Helper function to check if a string is purely numeric
+                const isPurelyNumeric = (str: string): boolean => {
+                    return /^\d+$/.test(str.trim());
+                };
+                
+                const isNumericA = isPurelyNumeric(skuA);
+                const isNumericB = isPurelyNumeric(skuB);
+                
+                // Case 1: Both are numeric - sort numerically
+                if (isNumericA && isNumericB) {
+                    return parseInt(skuA, 10) - parseInt(skuB, 10);
+                }
+                
+                // Case 2: One numeric, one non-numeric - numeric comes first
+                if (isNumericA && !isNumericB) {
+                    return -1;
+                }
+                if (!isNumericA && isNumericB) {
+                    return 1;
+                }
+                
+                // Case 3: Both non-numeric - sort alphabetically
+                return skuA.localeCompare(skuB);
             });
 
             // Convert map to array and return
-            return Array.from(combinedResults.values());
+            return finalResults;
 
         } catch (error) {
             console.error("Error fetching daily report data:", error);

@@ -6,12 +6,18 @@ export const discountTypeEnum = pgEnum("discount_type", [
     'Percentage'
 ])
 
+export const customerCategoryTypeEnum = pgEnum("customer_category_type", [
+    'Outlet',
+    'Production'
+])
+
 export const customerCategoryTable = pgTable('customer_category', {
     id: uuid('id').defaultRandom().primaryKey(),
     createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     categoryName: varchar('name').notNull(),
+    type: customerCategoryTypeEnum('type').notNull().default("Outlet"),
     discountType: discountTypeEnum('discount_type').notNull().default("Fixed"),
     discountAmount: numeric('discount_amount', {mode: 'number', scale: 2}).default(0).notNull()
 });

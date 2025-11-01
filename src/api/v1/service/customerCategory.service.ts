@@ -6,48 +6,87 @@ import { getCurrentDate } from "../utils/timezone";
 
 export class CustomerCategoryService {
     static async createCustomerCategory(customerCategoryData: NewCustomerCategory) {
-        const [createdCustomerCategory] = await db.insert(customerCategoryTable).values({ ...customerCategoryData }).returning();
-        return createdCustomerCategory;
+        try {
+            const [createdCustomerCategory] = await db.insert(customerCategoryTable).values({ ...customerCategoryData }).returning();
+            return createdCustomerCategory;
+        } catch (error: any) {
+            if (error.code === '23505') { // Unique constraint violation
+                throw new Error('Customer category with this name already exists');
+            }
+            if (error.code === '23502') { // Not null constraint violation
+                throw new Error('Required fields are missing');
+            }
+            if (error.code === '23514') { // Check constraint violation (for enum values)
+                throw new Error('Invalid value provided for type field. Must be either "Outlet" or "Production"');
+            }
+            throw new Error(`Failed to create customer category: ${error.message}`);
+        }
     }
 
     static async updateCustomerCategory(id: string, customerCategoryData: Partial<NewCustomerCategory>) {
-        const updatedCustomerCategory = await db.transaction(async (tx) => {
-            // Check if customer category exists
-            const existingCustomerCategory = await tx.select().from(customerCategoryTable).where(eq(customerCategoryTable.id, id));
-            if (existingCustomerCategory.length === 0) {
-                tx.rollback();
+        try {
+            const updatedCustomerCategory = await db.transaction(async (tx) => {
+                // Check if customer category exists
+                const existingCustomerCategory = await tx.select().from(customerCategoryTable).where(eq(customerCategoryTable.id, id));
+                if (existingCustomerCategory.length === 0) {
+                    throw new Error('Customer category not found');
+                }
+
+                // Update the customer category
+                const [updated] = await tx.update(customerCategoryTable)
+                    .set({
+                        ...customerCategoryData,
+                        updatedAt: getCurrentDate()
+                    })
+                    .where(eq(customerCategoryTable.id, id))
+                    .returning();
+
+                return updated;
+            });
+
+            return updatedCustomerCategory;
+        } catch (error: any) {
+            if (error.message === 'Customer category not found') {
+                throw error; // Re-throw our custom error
             }
-
-            // Update the customer category
-            const [updated] = await tx.update(customerCategoryTable)
-                .set({
-                    ...customerCategoryData,
-                    updatedAt: getCurrentDate()
-                })
-                .where(eq(customerCategoryTable.id, id))
-                .returning();
-
-            return updated;
-        });
-
-        return updatedCustomerCategory;
+            if (error.code === '23505') { // Unique constraint violation
+                throw new Error('Customer category with this name already exists');
+            }
+            if (error.code === '23502') { // Not null constraint violation
+                throw new Error('Required fields cannot be null');
+            }
+            if (error.code === '23514') { // Check constraint violation (for enum values)
+                throw new Error('Invalid value provided for type field. Must be either "Outlet" or "Production"');
+            }
+            throw new Error(`Failed to update customer category: ${error.message}`);
+        }
     }
 
     static async deleteCustomerCategory(id: string) {
-        return await db.transaction(async (tx) => {
-            // Check if customer category exists
-            const existingCustomerCategory = await tx.select().from(customerCategoryTable).where(eq(customerCategoryTable.id, id));
-            if (existingCustomerCategory.length === 0) {
-                tx.rollback();
+        try {
+            return await db.transaction(async (tx) => {
+                // Check if customer category exists
+                const existingCustomerCategory = await tx.select().from(customerCategoryTable).where(eq(customerCategoryTable.id, id));
+                if (existingCustomerCategory.length === 0) {
+                    throw new Error('Customer category not found');
+                }
+
+                // Delete the customer category
+                const [deleted] = await tx.delete(customerCategoryTable)
+                    .where(eq(customerCategoryTable.id, id))
+                    .returning();
+
+                return deleted;
+            });
+        } catch (error: any) {
+            if (error.message === 'Customer category not found') {
+                throw error; // Re-throw our custom error
             }
-
-            // Delete the customer category
-            const [deleted] = await tx.delete(customerCategoryTable)
-                .where(eq(customerCategoryTable.id, id))
-                .returning();
-
-            return deleted;
-        });
+            if (error.code === '23503') { // Foreign key constraint violation
+                throw new Error('Cannot delete customer category as it is being used by other records');
+            }
+            throw new Error(`Failed to delete customer category: ${error.message}`);
+        }
     }
 
     static async getCustomerCategories(
