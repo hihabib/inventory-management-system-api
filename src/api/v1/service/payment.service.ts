@@ -3,6 +3,9 @@ import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { saleTable } from "../drizzle/schema/sale";
+import { userTable } from "../drizzle/schema/user";
+import { roleTable } from "../drizzle/schema/role";
+import { maintainsTable } from "../drizzle/schema/maintains";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from '../utils/filterWithPaginate';
 
 export class PaymentService {
@@ -103,6 +106,24 @@ export class PaymentService {
                     alias: 'sale',
                     condition: eq(paymentSaleTable.saleId, saleTable.id),
                     type: 'left'
+                },
+                {
+                    table: userTable,
+                    alias: 'user',
+                    condition: eq(paymentTable.createdBy, userTable.id),
+                    type: 'left'
+                },
+                {
+                    table: roleTable,
+                    alias: 'role',
+                    condition: eq(userTable.roleId, roleTable.id),
+                    type: 'left'
+                },
+                {
+                    table: maintainsTable,
+                    alias: 'userMaintains',
+                    condition: eq(userTable.maintainsId, maintainsTable.id),
+                    type: 'left'
                 }
             ],
             select: {
@@ -131,7 +152,25 @@ export class PaymentService {
                 saleQuantity: saleTable.saleQuantity,
                 saleAmount: saleTable.saleAmount,
                 pricePerUnit: saleTable.pricePerUnit,
-                unit: saleTable.unit
+                unit: saleTable.unit,
+                // User fields
+                userId: userTable.id,
+                username: userTable.username,
+                userEmail: userTable.email,
+                userFullName: userTable.fullName,
+                userCreatedAt: userTable.createdAt,
+                userUpdatedAt: userTable.updatedAt,
+                // Role fields
+                roleId: roleTable.id,
+                roleName: roleTable.name,
+                roleDefaultRoute: roleTable.defaultRoute,
+                // User Maintains fields
+                userMaintainsId: maintainsTable.id,
+                userMaintainsName: maintainsTable.name,
+                userMaintainsType: maintainsTable.type,
+                userMaintainsDescription: maintainsTable.description,
+                userMaintainsLocation: maintainsTable.location,
+                userMaintainsPhone: maintainsTable.phone
             }
         });
 
@@ -151,6 +190,27 @@ export class PaymentService {
                     payments: row.payments,
                     totalAmount: Number(row.totalAmount.toFixed(2)),
                     customerDueId: row.customerDueId,
+                    user: {
+                        id: row.userId,
+                        username: row.username,
+                        email: row.userEmail,
+                        fullName: row.userFullName,
+                        role: {
+                            roleId: row.roleId,
+                            roleName: row.roleName,
+                            defaultRoute: row.roleDefaultRoute
+                        },
+                        maintains: {
+                            maintainsId: row.userMaintainsId,
+                            name: row.userMaintainsName,
+                            type: row.userMaintainsType,
+                            description: row.userMaintainsDescription,
+                            location: row.userMaintainsLocation,
+                            phone: row.userMaintainsPhone
+                        },
+                        createdAt: row.userCreatedAt,
+                        updatedAt: row.userUpdatedAt
+                    },
                     sales: []
                 });
             }
