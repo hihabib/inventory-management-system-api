@@ -357,7 +357,7 @@ export class SaleService {
         return Array.from(categoryIds);
     }
 
-    static async getDailyReportData(date: string, maintainsId: string) {
+    static async getDailyReportData(date: string, maintainsId: string, isDummy: boolean = false, reduceSalePercentage?: number) {
         try {
             // Parse the input date (which represents start of day in Dhaka time as UTC)
             const inputDate = new Date(date);
@@ -495,13 +495,15 @@ export class SaleService {
                 .where(
                     and(
                         eq(dailyStockRecordTable.maintainsId, maintainsId),
-                        gt(dailyStockRecordTable.createdAt, startDate),
-                        lt(dailyStockRecordTable.createdAt, endDate),
+                        gte(dailyStockRecordTable.createdAt, startDate),
+                        lte(dailyStockRecordTable.createdAt, endDate),
                         inArray(dailyStockRecordTable.productId, productIdsArray),
                         inArray(unitTable.name, unitNamesArray)
                     )
                 )
                 .groupBy(dailyStockRecordTable.productId, unitTable.name);
+
+                
 
             // 6.1. Fetch current stock data as fallback for mainUnitPrice
             const currentStockData = await db
@@ -655,6 +657,33 @@ export class SaleService {
                 // Case 3: Both non-numeric - sort alphabetically
                 return skuA.localeCompare(skuB);
             });
+
+            // Apply dummy data reduction if requested
+            if (isDummy && reduceSalePercentage) {
+                finalResults.forEach(result => {
+                    // Calculate reduction factor (e.g., 40% reduction means multiply by 0.6)
+                    const reductionFactor = (100 - reduceSalePercentage) / 100;
+                    
+                    // Reduce totalSaleAmount
+                    const reducedSaleAmount = result.totalSaleAmount * reductionFactor;
+                    result.totalSaleAmount = Math.max(0, reducedSaleAmount); // Ensure not negative
+                    
+                    // Reduce totalSoldQuantity with unit-specific rounding
+                    const reducedQuantity = result.totalSoldQuantity * reductionFactor;
+                    const positiveReducedQuantity = Math.max(0, reducedQuantity); // Ensure not negative
+                    
+                    if (result.mainUnitName === "kg") {
+                        // For kg: allow decimals, max 2 decimal places
+                        result.totalSoldQuantity = Math.round(positiveReducedQuantity * 100) / 100;
+                    } else if (result.mainUnitName === "piece" || result.mainUnitName === "box") {
+                        // For piece/box: use Math.floor for integer values
+                        result.totalSoldQuantity = Math.floor(positiveReducedQuantity);
+                    } else {
+                        // For other units: default to 2 decimal places
+                        result.totalSoldQuantity = Math.round(positiveReducedQuantity * 100) / 100;
+                    }
+                });
+            }
 
             // Convert map to array and return
             return finalResults;

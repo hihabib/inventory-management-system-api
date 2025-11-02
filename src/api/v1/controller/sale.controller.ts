@@ -145,7 +145,7 @@ export class SaleController {
     });
 
     static getDailyReportData = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { date, maintains_id } = req.query;
+        const { date, maintains_id, isDummy, reduceSalePercentage } = req.query;
         
         // Validate required parameters
         if (!date || !maintains_id) {
@@ -164,8 +164,30 @@ export class SaleController {
             return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
         }
 
+        // Validate isDummy parameter
+        if (isDummy && isDummy !== "true" && isDummy !== "false") {
+            return sendResponse(res, 400, "Invalid isDummy value. Must be 'true' or 'false'");
+        }
+
+        // Validate reduceSalePercentage when isDummy is true
+        if (isDummy === "true") {
+            if (!reduceSalePercentage) {
+                return sendResponse(res, 400, "reduceSalePercentage is required when isDummy is 'true'");
+            }
+
+            const percentage = parseFloat(reduceSalePercentage as string);
+            if (isNaN(percentage) || percentage < 1 || percentage > 100) {
+                return sendResponse(res, 400, "reduceSalePercentage must be a number between 1 and 100");
+            }
+        }
+
         try {
-            const reportData = await SaleService.getDailyReportData(date as string, maintains_id as string);
+            const reportData = await SaleService.getDailyReportData(
+                date as string, 
+                maintains_id as string,
+                isDummy === "true",
+                reduceSalePercentage ? parseFloat(reduceSalePercentage as string) : undefined
+            );
             return sendResponse(res, 200, "Daily report data retrieved successfully", reportData);
         } catch (error) {
             console.error("Error retrieving daily report data:", error);
