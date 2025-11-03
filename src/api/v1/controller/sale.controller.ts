@@ -98,7 +98,7 @@ export class SaleController {
         }
 
         // Validate total amounts
-        if (typeof saleData.totalPriceWithDiscount !== 'number' || saleData.totalPriceWithDiscount <= 0) {
+        if (typeof saleData.totalPriceWithDiscount !== 'number' || saleData.totalPriceWithDiscount < 0) {
             return sendResponse(res, 400, "totalPriceWithDiscount must be a positive number");
         }
 

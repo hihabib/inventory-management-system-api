@@ -38,7 +38,7 @@ export class ExpenseController {
 
     static getExpenses = requestHandler(async (req: AuthRequest, res: Response) => {
         const { pagination, filter } = getFilterAndPaginationFromRequest(req);
-        
+    
         const expenses = await ExpenseService.getExpenses(pagination, filter);
         sendResponse(res, 200, 'Expenses fetched successfully', expenses);
     });
