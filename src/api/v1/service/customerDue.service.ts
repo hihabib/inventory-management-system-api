@@ -1,9 +1,10 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray, asc, and, gte, lte } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
 import { userTable } from "../drizzle/schema/user";
 import { customerTable } from "../drizzle/schema/customer";
 import { maintainsTable } from "../drizzle/schema/maintains";
+import { customerDueUpdatesTable } from "../drizzle/schema/customerDueUpdates";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { getCurrentDate } from "../utils/timezone";
 import { AppError } from "../utils/AppError";
@@ -18,13 +19,15 @@ export class CustomerDueService {
         return createdCustomerDue;
     }
 
-    static async updateCustomerDue(id: string, customerDueData: Partial<NewCustomerDue>) {
+    static async updateCustomerDue(id: string, customerDueData: Partial<NewCustomerDue>, updatedBy: string) {
         const updatedCustomerDue = await db.transaction(async (tx) => {
             // Check if customer due exists
             const existingCustomerDue = await tx.select().from(customerDueTable).where(eq(customerDueTable.id, id));
             if (existingCustomerDue.length === 0) {
                 throw new AppError('Customer due record not found', 404);
             }
+
+            const prevPaidAmount = Number(existingCustomerDue[0].paidAmount ?? 0);
 
             // Update the customer due
             const [updated] = await tx.update(customerDueTable)
@@ -34,6 +37,21 @@ export class CustomerDueService {
                 })
                 .where(eq(customerDueTable.id, id))
                 .returning();
+
+            // Insert a history row in customer_due_updates
+            const newPaidAmount = Number(updated.paidAmount ?? 0);
+            const newTotalAmount = Number(updated.totalAmount ?? 0);
+            const delta = Number((newPaidAmount - prevPaidAmount).toFixed(2));
+
+            await tx.insert(customerDueUpdatesTable).values({
+                customerDueId: id,
+                updatedBy,
+                totalAmount: newTotalAmount,
+                paidAmount: newPaidAmount,
+                collectedAmount: delta,
+                createdAt: getCurrentDate(),
+                updatedAt: getCurrentDate()
+            });
 
             return updated;
         });
@@ -80,7 +98,7 @@ export class CustomerDueService {
             filter = restFilter;
         }
 
-        return await filterWithPaginate(customerDueTable, {
+        const result = await filterWithPaginate(customerDueTable, {
             pagination,
             filter,
             where: searchConditions.length > 0 ? searchConditions : undefined,
@@ -123,6 +141,40 @@ export class CustomerDueService {
                 maintainsType: maintainsTable.type
             }
         });
+
+        const ids = result.list.map((r: any) => r.id);
+        let updatesByDueId = new Map<string, any[]>();
+        if (ids.length > 0) {
+            const updates = await db
+                .select({
+                    id: customerDueUpdatesTable.id,
+                    createdAt: customerDueUpdatesTable.createdAt,
+                    updatedAt: customerDueUpdatesTable.updatedAt,
+                    customerDueId: customerDueUpdatesTable.customerDueId,
+                    updatedBy: customerDueUpdatesTable.updatedBy,
+                    totalAmount: customerDueUpdatesTable.totalAmount,
+                    paidAmount: customerDueUpdatesTable.paidAmount,
+                    collectedAmount: customerDueUpdatesTable.collectedAmount,
+                })
+                .from(customerDueUpdatesTable)
+                .where(inArray(customerDueUpdatesTable.customerDueId, ids))
+                .orderBy(asc(customerDueUpdatesTable.createdAt));
+
+            for (const u of updates) {
+                const key = u.customerDueId as string;
+                const arr = updatesByDueId.get(key) ?? [];
+                arr.push(u);
+                updatesByDueId.set(key, arr);
+            }
+        }
+
+        return {
+            ...result,
+            list: result.list.map((r: any) => ({
+                ...r,
+                updates: updatesByDueId.get(r.id) ?? []
+            }))
+        };
     }
 
     static async getCustomerDueById(id: string) {
@@ -158,6 +210,45 @@ export class CustomerDueService {
             throw new AppError('Customer due record not found', 404);
         }
 
-        return result[0];
+        const updates = await db
+            .select({
+                id: customerDueUpdatesTable.id,
+                createdAt: customerDueUpdatesTable.createdAt,
+                updatedAt: customerDueUpdatesTable.updatedAt,
+                customerDueId: customerDueUpdatesTable.customerDueId,
+                updatedBy: customerDueUpdatesTable.updatedBy,
+                totalAmount: customerDueUpdatesTable.totalAmount,
+                paidAmount: customerDueUpdatesTable.paidAmount,
+                collectedAmount: customerDueUpdatesTable.collectedAmount,
+            })
+            .from(customerDueUpdatesTable)
+            .where(eq(customerDueUpdatesTable.customerDueId, id))
+            .orderBy(asc(customerDueUpdatesTable.createdAt));
+
+        return { ...result[0], updates };
+    }
+
+    // Sum of collectedAmount for a given calendar date and maintains outlet
+    static async getTotalCreditCollection(date: Date, maintainsId: string): Promise<number> {
+        // Define start and end of day range [00:00:00.000, 23:59:59.999]
+        const startDate = new Date(date);
+        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+
+        const [result] = await db
+            .select({
+                totalChanges: sql<number>`COALESCE(SUM(${customerDueUpdatesTable.collectedAmount}), 0)`
+            })
+            .from(customerDueUpdatesTable)
+            .innerJoin(customerDueTable, eq(customerDueUpdatesTable.customerDueId, customerDueTable.id))
+            .where(
+                and(
+                    eq(customerDueTable.maintainsId, maintainsId),
+                    gte(customerDueUpdatesTable.createdAt, startDate),
+                    lte(customerDueUpdatesTable.createdAt, endDate)
+                )
+            );
+
+        const total = Number(result?.totalChanges ?? 0);
+        return Number.isFinite(total) ? total : 0;
     }
 }

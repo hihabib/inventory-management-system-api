@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, sum, sql, inArray, lt, gt } from "drizzle-orm";
+import { eq, and, gte, lte, sum, sql, inArray, lt, gt, asc, desc } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable } from "../drizzle/schema/customerDue";
 import { PaymentMethod, paymentTable } from "../drizzle/schema/payment";
@@ -10,6 +10,10 @@ import { unitConversionTable } from "../drizzle/schema/unitConversion";
 import { deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { stockTable } from "../drizzle/schema/stock";
 import { dailyStockRecordTable } from "../drizzle/schema/dailyStockRecord";
+import { cashSendingTable } from "../drizzle/schema/cashSending";
+import { userTable } from "../drizzle/schema/user";
+import { maintainsTable } from "../drizzle/schema/maintains";
+import { getCurrentDate } from "../utils/timezone";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
@@ -68,7 +72,7 @@ export class SaleService {
                     let saleAmount: number;
                     const discount = product.discount || 0;
                     const discountType = product.discountType || "Fixed";
-                    
+
                     if (discountType === "Fixed") {
                         saleAmount = (product.quantity * product.price_per_quantity) - discount;
                     } else { // Percentage
@@ -84,22 +88,22 @@ export class SaleService {
                     // Calculate quantity in main unit
                     let quantityInMainUnit: number | null = null;
                     let mainUnitPrice: number | null = null;
-                    
+
                     try {
                         // Get product's main unit
                         const [productInfo] = await tx.select({
                             mainUnitId: productTable.mainUnitId
                         })
-                        .from(productTable)
-                        .where(eq(productTable.id, product.productId));
+                            .from(productTable)
+                            .where(eq(productTable.id, product.productId));
 
                         if (productInfo?.mainUnitId) {
                             // Get main unit name
                             const [mainUnit] = await tx.select({
                                 name: unitTable.name
                             })
-                            .from(unitTable)
-                            .where(eq(unitTable.id, productInfo.mainUnitId));
+                                .from(unitTable)
+                                .where(eq(unitTable.id, productInfo.mainUnitId));
 
                             if (mainUnit) {
                                 // Check if sale unit is the same as product's main unit
@@ -112,19 +116,19 @@ export class SaleService {
                                     const [saleUnit] = await tx.select({
                                         id: unitTable.id
                                     })
-                                    .from(unitTable)
-                                    .where(eq(unitTable.name, product.unit));
+                                        .from(unitTable)
+                                        .where(eq(unitTable.name, product.unit));
 
                                     if (saleUnit) {
                                         // Get the conversion factor
                                         const [conversion] = await tx.select({
                                             conversionFactor: unitConversionTable.conversionFactor
                                         })
-                                        .from(unitConversionTable)
-                                        .where(and(
-                                            eq(unitConversionTable.productId, product.productId),
-                                            eq(unitConversionTable.unitId, saleUnit.id)
-                                        ));
+                                            .from(unitConversionTable)
+                                            .where(and(
+                                                eq(unitConversionTable.productId, product.productId),
+                                                eq(unitConversionTable.unitId, saleUnit.id)
+                                            ));
 
                                         if (conversion) {
                                             // Convert to main unit: saleQuantity / conversionFactor
@@ -138,13 +142,13 @@ export class SaleService {
                             const [stockPrice] = await tx.select({
                                 pricePerQuantity: stockTable.pricePerQuantity
                             })
-                            .from(stockTable)
-                            .where(and(
-                                eq(stockTable.productId, product.productId),
-                                eq(stockTable.maintainsId, saleData.maintainsId),
-                                eq(stockTable.unitId, productInfo.mainUnitId),
-                                eq(stockTable.stockBatchId, product.stockBatchId)
-                            ));
+                                .from(stockTable)
+                                .where(and(
+                                    eq(stockTable.productId, product.productId),
+                                    eq(stockTable.maintainsId, saleData.maintainsId),
+                                    eq(stockTable.unitId, productInfo.mainUnitId),
+                                    eq(stockTable.stockBatchId, product.stockBatchId)
+                                ));
 
                             if (stockPrice) {
                                 mainUnitPrice = Number(stockPrice.pricePerQuantity.toFixed(2));
@@ -186,19 +190,19 @@ export class SaleService {
                     "card": 0,
                     "sendForUse": 0
                 };
-                
+
                 // Validate payment methods and accumulate amounts
                 let totalPaymentAmount = 0;
                 for (const payment of saleData.paymentInfo) {
                     if (!payment.method || typeof payment.amount !== 'number' || payment.amount < 0) {
                         throw new Error("Invalid payment method or amount");
                     }
-                    
+
                     const method = payment.method as PaymentMethod;
                     if (!(method in paymentMethods)) {
                         throw new Error(`Invalid payment method: ${method}`);
                     }
-                    
+
                     paymentMethods[method] += payment.amount;
                     totalPaymentAmount += payment.amount;
                 }
@@ -244,7 +248,7 @@ export class SaleService {
 
                 // After successful sale completion, clean up empty stock batches
                 console.log('🧹 [SaleService] Starting post-sale stock batch cleanup');
-                
+
                 // Extract unique product-outlet combinations from the sale
                 const saleItemsForCleanup = saleData.products.map(product => ({
                     productId: product.productId,
@@ -330,30 +334,121 @@ export class SaleService {
         return sale;
     }
 
+    // Get total discount for a specific calendar date and maintains outlet (optional customerCategoryId)
+    static async getTotalDiscountByDate(
+        maintainsId: string,
+        dayStartUtc: Date,
+        customerCategoryId?: string
+    ): Promise<number> {
+        // Define start and end of day range [00:00:00.000, 23:59:59.999]
+        const startDate = new Date(dayStartUtc);
+        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+
+        // Build where clause based on provided parameters
+        const baseWhere = and(
+            eq(saleTable.maintainsId, maintainsId),
+            gte(saleTable.createdAt, startDate),
+            lte(saleTable.createdAt, endDate)
+        );
+
+        const whereClause = customerCategoryId
+            ? and(baseWhere, eq(saleTable.customerCategoryId, customerCategoryId))
+            : baseWhere;
+
+        // Perform discount calculation in the database layer
+        const [result] = await db
+            .select({
+                totalDiscount: sql<number>`COALESCE(SUM((COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)) - COALESCE(${saleTable.saleAmount}, 0)), 0)`
+            })
+            .from(saleTable)
+            .where(whereClause);
+
+        const total = Number(result?.totalDiscount ?? 0);
+        console.log("total",total, customerCategoryId);
+        
+        return Number.isFinite(total) ? total : 0;
+    }
+
+    // Get total outgoing product price for a specific calendar date and maintains outlet
+    // Calculates gross daily sale amount (SUM(quantityInMainUnit * mainUnitPrice)) without discount
+    static async getTotalOutgoingProductPrice(date: Date, maintainsId: string): Promise<number> {
+        // Define start and end of day range [start, next day start) in UTC
+        const startDate = new Date(date);
+        const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+
+        // Use the same category filter as daily report for consistency
+        const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
+        const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(
+            catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"
+        );
+        const [result] = await db
+            .select({
+                totalOutgoingPrice: sql<number>`COALESCE(SUM(COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)), 0)`
+            })
+            .from(saleTable)
+            .innerJoin(productTable, eq(saleTable.productId, productTable.id))
+            .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
+            .where(
+                and(
+                    eq(saleTable.maintainsId, maintainsId),
+                    gte(saleTable.createdAt, startDate),
+                    inArray(productCategoryInProductTable.productCategoryId, allCategoryIds),
+                    lt(saleTable.createdAt, endDate)
+                )
+            )
+
+        const total = Number(result?.totalOutgoingPrice ?? 0);
+        return Number.isFinite(total) ? total : 0;
+    }
+
+    // Get total cash sending amount for a specific calendar date and maintains outlet
+    // Filters cash_sending by maintains_id and cash_of, sums cash_amount in the database
+    static async getTotalCashSending(date: Date, maintainsId: string): Promise<number> {
+        // Define start and end of day range [00:00:00.000, 23:59:59.999]
+        const startDate = new Date(date);
+        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+
+        const [result] = await db
+            .select({
+                totalCash: sql<number>`COALESCE(SUM(${cashSendingTable.cashAmount}), 0)`
+            })
+            .from(cashSendingTable)
+            .where(
+                and(
+                    eq(cashSendingTable.maintainsId, maintainsId),
+                    gte(cashSendingTable.cashOf, startDate),
+                    lte(cashSendingTable.cashOf, endDate)
+                )
+            );
+
+        const total = Number(result?.totalCash ?? 0);
+        return Number.isFinite(total) ? total : 0;
+    }
+
     // Helper function to get all category IDs including children recursively
     public static async getAllCategoryIds(targetCategoryId: string): Promise<string[]> {
         const categoryIds = new Set<string>();
         const toProcess = [targetCategoryId];
-        
+
         while (toProcess.length > 0) {
             const currentId = toProcess.pop()!;
             if (categoryIds.has(currentId)) continue;
-            
+
             categoryIds.add(currentId);
-            
+
             // Find all child categories
             const children = await db
                 .select({ id: productCategoryTable.id })
                 .from(productCategoryTable)
                 .where(eq(productCategoryTable.parentId, currentId));
-            
+
             children.forEach(child => {
                 if (!categoryIds.has(child.id)) {
                     toProcess.push(child.id);
                 }
             });
         }
-        
+
         return Array.from(categoryIds);
     }
 
@@ -361,19 +456,19 @@ export class SaleService {
         try {
             // Parse the input date (which represents start of day in Dhaka time as UTC)
             const inputDate = new Date(date);
-            
+
             // The input date is already the start of the day in Dhaka time (converted to UTC)
             // For example: "2025-10-29T18:00:00.000Z" = Oct 30, 2025 00:00:00 Dhaka time
             const startDate = new Date(inputDate);
-            
+
             // Create end date: add 24 hours to get the end of the day in Dhaka time
             const endDate = new Date(inputDate.getTime() + 24 * 60 * 60 * 1000);
-            
+
             console.log(`Date filtering: Input=${date}, Start=${startDate.toISOString()}, End=${endDate.toISOString()}`);
 
             // Get all category IDs (including children) for filtering
             const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
-            const allCategoryIds = await this.getAllCategoryIds(targetCategoryId);
+            const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652");;
 
             // 1. Fetch Order-Completed delivery history records
             const orderCompletedData = await db
@@ -393,7 +488,7 @@ export class SaleService {
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Order-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
-                        lte(deliveryHistoryTable.sentAt, endDate),
+                        lt(deliveryHistoryTable.sentAt, endDate),
                         inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 );
@@ -416,10 +511,13 @@ export class SaleService {
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
-                        lte(deliveryHistoryTable.sentAt, endDate),
+                        lt(deliveryHistoryTable.sentAt, endDate),
                         inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 );
+
+            console.log("startDate", startDate);
+            console.log("endDate", endDate);
 
             // 3. Fetch aggregated sale data
             const saleData = await db
@@ -440,7 +538,7 @@ export class SaleService {
                     and(
                         eq(saleTable.maintainsId, maintainsId),
                         gte(saleTable.createdAt, startDate),
-                        lte(saleTable.createdAt, endDate),
+                        lt(saleTable.createdAt, endDate),
                         inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
                     )
                 )
@@ -496,14 +594,14 @@ export class SaleService {
                     and(
                         eq(dailyStockRecordTable.maintainsId, maintainsId),
                         gte(dailyStockRecordTable.createdAt, startDate),
-                        lte(dailyStockRecordTable.createdAt, endDate),
+                        lt(dailyStockRecordTable.createdAt, endDate),
                         inArray(dailyStockRecordTable.productId, productIdsArray),
                         inArray(unitTable.name, unitNamesArray)
                     )
                 )
                 .groupBy(dailyStockRecordTable.productId, unitTable.name);
 
-                
+
 
             // 6.1. Fetch current stock data as fallback for mainUnitPrice
             const currentStockData = await db
@@ -598,7 +696,7 @@ export class SaleService {
             // 9. Populate stock data and fallback mainUnitPrice for all products
             combinedResults.forEach((result, productId) => {
                 const compositeKey = `${productId}::${result.mainUnitName}`;
-                
+
                 // Always try to populate stock data if not already set
                 if (result.previousStockQuantity === 0 && result.previousStockTotalPrice === 0) {
                     const stockData = stockMap.get(compositeKey);
@@ -607,7 +705,7 @@ export class SaleService {
                         result.previousStockTotalPrice = stockData.totalPrice;
                     }
                 }
-                
+
                 // If no mainUnitPrice from sales, try to get it from stock data
                 if (result.mainUnitPrice === 0 && result.mainUnitName) {
                     const stockData = stockMap.get(compositeKey);
@@ -615,7 +713,7 @@ export class SaleService {
                         // Calculate average price from daily stock if available
                         result.mainUnitPrice = stockData.totalPrice / stockData.totalQuantity;
                     }
-                    
+
                     // If still no price, try current stock data as final fallback
                     if (result.mainUnitPrice === 0) {
                         const currentStockPrice = currentStockPriceMap.get(compositeKey);
@@ -628,24 +726,24 @@ export class SaleService {
 
             // Convert map to array and apply custom SKU sorting
             const finalResults = Array.from(combinedResults.values());
-            
+
             finalResults.sort((a, b) => {
                 const skuA = a.sku || '';
                 const skuB = b.sku || '';
-                
+
                 // Helper function to check if a string is purely numeric
                 const isPurelyNumeric = (str: string): boolean => {
                     return /^\d+$/.test(str.trim());
                 };
-                
+
                 const isNumericA = isPurelyNumeric(skuA);
                 const isNumericB = isPurelyNumeric(skuB);
-                
+
                 // Case 1: Both are numeric - sort numerically
                 if (isNumericA && isNumericB) {
                     return parseInt(skuA, 10) - parseInt(skuB, 10);
                 }
-                
+
                 // Case 2: One numeric, one non-numeric - numeric comes first
                 if (isNumericA && !isNumericB) {
                     return -1;
@@ -653,7 +751,7 @@ export class SaleService {
                 if (!isNumericA && isNumericB) {
                     return 1;
                 }
-                
+
                 // Case 3: Both non-numeric - sort alphabetically
                 return skuA.localeCompare(skuB);
             });
@@ -663,15 +761,15 @@ export class SaleService {
                 finalResults.forEach(result => {
                     // Calculate reduction factor (e.g., 40% reduction means multiply by 0.6)
                     const reductionFactor = (100 - reduceSalePercentage) / 100;
-                    
+
                     // Reduce totalSaleAmount
                     const reducedSaleAmount = result.totalSaleAmount * reductionFactor;
                     result.totalSaleAmount = Math.max(0, reducedSaleAmount); // Ensure not negative
-                    
+
                     // Reduce totalSoldQuantity with unit-specific rounding
                     const reducedQuantity = result.totalSoldQuantity * reductionFactor;
                     const positiveReducedQuantity = Math.max(0, reducedQuantity); // Ensure not negative
-                    
+
                     if (result.mainUnitName === "kg") {
                         // For kg: allow decimals, max 2 decimal places
                         result.totalSoldQuantity = Math.round(positiveReducedQuantity * 100) / 100;
@@ -692,5 +790,150 @@ export class SaleService {
             console.error("Error fetching daily report data:", error);
             throw new Error("Failed to fetch daily report data");
         }
+    }
+
+    static async createCashSending(
+        data: { maintainsId: string; cashAmount: number; cashOf: string; note?: string },
+        userId: string
+    ) {
+        const sendingTime = getCurrentDate();
+        const cashOfDate = new Date(data.cashOf);
+
+        const [created] = await db
+            .insert(cashSendingTable)
+            .values({
+                userId,
+                maintainsId: data.maintainsId,
+                cashAmount: data.cashAmount,
+                sendingTime,
+                cashOf: cashOfDate,
+                note: data.note ?? "",
+            })
+            .returning();
+
+        return created;
+    }
+
+    static async getCashSendingList(
+        pagination: PaginationOptions = {},
+        filter: FilterOptions = {},
+        sort: 'asc' | 'desc' = 'desc'
+    ) {
+        const orderByExpr = sort === 'asc'
+            ? asc(cashSendingTable.createdAt)
+            : desc(cashSendingTable.createdAt);
+        return await filterWithPaginate(cashSendingTable, {
+            pagination,
+            filter,
+            orderBy: orderByExpr,
+            joins: [
+                {
+                    table: userTable,
+                    alias: 'user',
+                    condition: eq(cashSendingTable.userId, userTable.id),
+                    type: 'left'
+                },
+                {
+                    table: maintainsTable,
+                    alias: 'maintains',
+                    condition: eq(cashSendingTable.maintainsId, maintainsTable.id),
+                    type: 'left'
+                }
+            ],
+            select: {
+                id: cashSendingTable.id,
+                userId: cashSendingTable.userId,
+                maintainsId: cashSendingTable.maintainsId,
+                createdAt: cashSendingTable.createdAt,
+                note: cashSendingTable.note,
+                cashAmount: cashSendingTable.cashAmount,
+                sendingTime: cashSendingTable.sendingTime,
+                cashOf: cashSendingTable.cashOf,
+                user: {
+                    id: userTable.id,
+                    username: userTable.username,
+                    email: userTable.email,
+                    fullName: userTable.fullName,
+                    roleId: userTable.roleId,
+                    maintainsId: userTable.maintainsId,
+                    createdAt: userTable.createdAt,
+                    updatedAt: userTable.updatedAt,
+                },
+                maintains: {
+                    id: maintainsTable.id,
+                    name: maintainsTable.name,
+                    type: maintainsTable.type,
+                    description: maintainsTable.description,
+                    location: maintainsTable.location,
+                    phone: maintainsTable.phone,
+                    createdAt: maintainsTable.createdAt,
+                    updatedAt: maintainsTable.updatedAt,
+                }
+            }
+        });
+    }
+
+    static async getCashSendingById(id: number) {
+        const rows = await db
+            .select({
+                id: cashSendingTable.id,
+                userId: cashSendingTable.userId,
+                maintainsId: cashSendingTable.maintainsId,
+                createdAt: cashSendingTable.createdAt,
+                note: cashSendingTable.note,
+                cashAmount: cashSendingTable.cashAmount,
+                sendingTime: cashSendingTable.sendingTime,
+                cashOf: cashSendingTable.cashOf,
+                user: {
+                    id: userTable.id,
+                    username: userTable.username,
+                    email: userTable.email,
+                    fullName: userTable.fullName,
+                    roleId: userTable.roleId,
+                    maintainsId: userTable.maintainsId,
+                    createdAt: userTable.createdAt,
+                    updatedAt: userTable.updatedAt,
+                },
+                maintains: {
+                    id: maintainsTable.id,
+                    name: maintainsTable.name,
+                    type: maintainsTable.type,
+                    description: maintainsTable.description,
+                    location: maintainsTable.location,
+                    phone: maintainsTable.phone,
+                    createdAt: maintainsTable.createdAt,
+                    updatedAt: maintainsTable.updatedAt,
+                }
+            })
+            .from(cashSendingTable)
+            .leftJoin(userTable, eq(cashSendingTable.userId, userTable.id))
+            .leftJoin(maintainsTable, eq(cashSendingTable.maintainsId, maintainsTable.id))
+            .where(eq(cashSendingTable.id, id))
+            .limit(1);
+
+        return rows[0];
+    }
+
+    static async updateCashSending(
+        id: number,
+        data: { maintainsId?: string; cashAmount?: number; cashOf?: string; note?: string }
+    ) {
+        const updatePayload: any = {};
+        if (data.maintainsId) updatePayload.maintainsId = data.maintainsId;
+        if (typeof data.cashAmount === 'number') updatePayload.cashAmount = data.cashAmount;
+        if (typeof data.note === 'string') updatePayload.note = data.note;
+        if (typeof data.cashOf === 'string') {
+            const cashOfDate = new Date(data.cashOf);
+            updatePayload.cashOf = cashOfDate;
+        }
+
+        const updated = await db
+            .update(cashSendingTable)
+            .set(updatePayload)
+            .where(eq(cashSendingTable.id, id))
+            .returning();
+
+        if (!updated || updated.length === 0) return null;
+        return await this.getCashSendingById(id);
     }
 }

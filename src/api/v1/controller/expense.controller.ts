@@ -38,14 +38,20 @@ export class ExpenseController {
 
     static getExpenses = requestHandler(async (req: AuthRequest, res: Response) => {
         const { pagination, filter } = getFilterAndPaginationFromRequest(req);
-    
-        const expenses = await ExpenseService.getExpenses(pagination, filter);
+        const sortParam = (req.query.sort as string)?.toLowerCase();
+        const sort: 'asc' | 'desc' = sortParam === 'asc' ? 'asc' : 'desc';
+
+        const expenses = await ExpenseService.getExpenses(pagination, filter, sort);
         sendResponse(res, 200, 'Expenses fetched successfully', expenses);
     });
 
     static getExpenseById = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
-        const expense = await ExpenseService.getExpenseById(id);
+        const idNum = Number(id);
+        if (!id || !Number.isInteger(idNum) || idNum <= 0) {
+            return sendResponse(res, 400, 'Invalid or missing expense id (must be a positive integer)', null);
+        }
+        const expense = await ExpenseService.getExpenseById(idNum);
         if (!expense) {
             return sendResponse(res, 404, 'Expense not found', null);
         }
@@ -54,6 +60,10 @@ export class ExpenseController {
 
     static updateExpense = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
+        const idNum = Number(id);
+        if (!id || !Number.isInteger(idNum) || idNum <= 0) {
+            return sendResponse(res, 400, 'Invalid or missing expense id (must be a positive integer)', null);
+        }
         const expenseData = req.body as Partial<NewExpense>;
 
         // Validate amount if provided
@@ -72,7 +82,7 @@ export class ExpenseController {
         }
 
         try {
-            const updatedExpense = await ExpenseService.updateExpense(id, expenseData);
+            const updatedExpense = await ExpenseService.updateExpense(idNum, expenseData);
             sendResponse(res, 200, 'Expense updated successfully', updatedExpense);
         } catch (error) {
             if (error instanceof Error && error.message.includes('not found')) {
@@ -84,9 +94,13 @@ export class ExpenseController {
 
     static deleteExpense = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
+        const idNum = Number(id);
+        if (!id || !Number.isInteger(idNum) || idNum <= 0) {
+            return sendResponse(res, 400, 'Invalid or missing expense id (must be a positive integer)', null);
+        }
 
         try {
-            const deletedExpense = await ExpenseService.deleteExpense(id);
+            const deletedExpense = await ExpenseService.deleteExpense(idNum);
             sendResponse(res, 200, 'Expense deleted successfully', deletedExpense);
         } catch (error) {
             if (error instanceof Error && error.message.includes('not found')) {

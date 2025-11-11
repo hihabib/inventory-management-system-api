@@ -1,9 +1,16 @@
 import { Response } from "express";
+import { eq } from "drizzle-orm";
 import { AuthRequest } from "../middleware/auth";
 import { SaleService } from "../service/sale.service";
+import { PaymentService } from "../service/payment.service";
+import { ExpenseService } from "../service/expense.service";
+import { CustomerDueService } from "../service/customerDue.service";
 import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
 import { requestHandler } from "../utils/requestHandler";
 import { sendResponse } from "../utils/response";
+import { db } from "../drizzle/db";
+import { maintainsTable } from "../drizzle/schema/maintains";
+import { getCurrentDate } from "../utils/timezone";
 
 export class SaleController {
     static createSale = requestHandler(async (req: AuthRequest, res: Response) => {
@@ -192,6 +199,226 @@ export class SaleController {
         } catch (error) {
             console.error("Error retrieving daily report data:", error);
             return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to retrieve daily report data");
+        }
+    });
+
+    // GET /api/v1/sales/getMoneyReport
+    // Query params: maintains_id (UUID), date (UTC ISO string)
+    static getMoneyReport = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { maintains_id, date } = req.query;
+
+        // Validate required parameters
+        if (!maintains_id || !date) {
+            return sendResponse(res, 400, "Both 'maintains_id' and 'date' query parameters are required");
+        }
+
+        // Validate maintains_id format (UUID)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(maintains_id as string)) {
+            return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
+        }
+
+        // Validate date format (strict UTC ISO string with 'Z')
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+        if (!isoRegex.test(date as string)) {
+            return sendResponse(res, 400, "Invalid date format. Must be a UTC ISO string (e.g., 2025-10-26T18:00:00.000Z)");
+        }
+
+        try {
+            const maintainsId = maintains_id as string;
+            const dayStartUtc = new Date(date as string);
+            console.log("dayStartUtc", dayStartUtc);
+            
+            // 1) Aggregations and sums (DB-level)
+            let [
+                totalOutgoingProductPrice,
+                mdSir,
+                atifAgroOffice,
+                totalDiscount,
+                payments,
+                previousCashRow,
+                creditCollection,
+                expense,
+                sentToBank
+            ] = await Promise.all([
+                SaleService.getTotalOutgoingProductPrice(dayStartUtc, maintainsId),
+                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
+                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc, "5a4a8d7f-3704-4ffc-a116-7810b99d696a"),
+                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc),
+                PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, dayStartUtc),
+                db
+                    .select({ stockCash: maintainsTable.stockCash })
+                    .from(maintainsTable)
+                    .where(eq(maintainsTable.id, maintainsId)),
+                CustomerDueService.getTotalCreditCollection(dayStartUtc, maintainsId),
+                ExpenseService.getTotalExpense(dayStartUtc, maintainsId),
+                SaleService.getTotalCashSending(dayStartUtc, maintainsId)
+            ]);
+
+            const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
+
+            // 2) Derivations
+            const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0));
+            const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
+
+            const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
+            const totalCashAfterSend = (totalCashBeforeSend || 0) - (sentToBank || 0);
+
+            // // 3) Update maintains.stockCash with totalCashAfterSend
+            // await db
+            //     .update(maintainsTable)
+            //     .set({ stockCash: totalCashAfterSend, updatedAt: getCurrentDate() })
+            //     .where(eq(maintainsTable.id, maintainsId));
+
+            const result = {
+                totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
+                mdSir: Number(mdSir || 0),
+                atifAgroOffice: Number(atifAgroOffice || 0),
+                discount: Number(discount || 0),
+                dueSale: Number(dueSale || 0),
+                cardSale: Number(cardSale || 0),
+                cashSale: Number(cashSale || 0),
+                bkashSale: Number(bkashSale || 0),
+                nogodSale: Number(nogodSale || 0),
+                sendForUse: Number(sendForUse || 0),
+                previousCash: Number(previousCash || 0),
+                creditCollection: Number(creditCollection || 0),
+                expense: Number(expense || 0),
+                totalCashBeforeSend: Number(totalCashBeforeSend || 0),
+                sentToBank: Number(sentToBank || 0),
+                totalCashAfterSend: Number(totalCashAfterSend || 0)
+            };
+
+            return sendResponse(res, 200, "Money report generated successfully", result);
+        } catch (error) {
+            console.error("Error generating money report:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to generate money report");
+        }
+    });
+
+    static createCashSending = requestHandler(async (req: AuthRequest, res: Response) => {
+        const userId = req.user?.id;
+        if (!userId) return sendResponse(res, 401, "User not authenticated");
+
+        const { maintainsId, cashAmount, cashOf, note } = req.body ?? {};
+
+        // Validate maintainsId (UUID)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!maintainsId || typeof maintainsId !== 'string' || !uuidRegex.test(maintainsId)) {
+            return sendResponse(res, 400, "Invalid or missing maintainsId (must be UUID)");
+        }
+
+        // Validate cashAmount
+        if (typeof cashAmount !== 'number' || !isFinite(cashAmount) || cashAmount <= 0) {
+            return sendResponse(res, 400, "cashAmount must be a positive number");
+        }
+
+        // Validate cashOf (ISO string, UTC expected)
+        if (!cashOf || typeof cashOf !== 'string') {
+            return sendResponse(res, 400, "cashOf is required and must be an ISO string");
+        }
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+        if (!isoRegex.test(cashOf)) {
+            return sendResponse(res, 400, "cashOf must be an ISO string in UTC (e.g., 2025-10-26T18:00:00.000Z)");
+        }
+
+        if (note !== undefined && typeof note !== 'string') {
+            return sendResponse(res, 400, "note must be a string when provided");
+        }
+
+        try {
+            const created = await SaleService.createCashSending({ maintainsId, cashAmount, cashOf, note }, userId);
+            return sendResponse(res, 201, "Cash sending recorded successfully", created);
+        } catch (error) {
+            console.error("Error creating cash sending:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to record cash sending");
+        }
+    });
+
+    static getCashSendingList = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { pagination, filter } = getFilterAndPaginationFromRequest(req);
+        const sortParam = (req.query.sort as string)?.toLowerCase();
+        const sort: 'asc' | 'desc' = sortParam === 'asc' ? 'asc' : 'desc';
+
+        try {
+            const list = await SaleService.getCashSendingList(pagination, filter, sort);
+            return sendResponse(res, 200, "Cash sending list retrieved successfully", list);
+        } catch (error) {
+            console.error("Error retrieving cash sending list:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to retrieve cash sending list");
+        }
+    });
+
+    static getCashSendingById = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { id } = req.params;
+        const idNum = Number(id);
+        if (!id || !Number.isInteger(idNum) || idNum <= 0) {
+            return sendResponse(res, 400, "Invalid or missing cash-sending id (must be a positive integer)");
+        }
+
+        try {
+            const data = await SaleService.getCashSendingById(idNum);
+            if (!data) {
+                return sendResponse(res, 404, "Cash sending not found");
+            }
+            return sendResponse(res, 200, "Cash sending retrieved successfully", data);
+        } catch (error) {
+            console.error("Error retrieving cash sending by id:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to retrieve cash sending");
+        }
+    });
+
+    static updateCashSending = requestHandler(async (req: AuthRequest, res: Response) => {
+        const userId = req.user?.id;
+        if (!userId) return sendResponse(res, 401, "User not authenticated");
+
+        const { id } = req.params;
+        const idNum = Number(id);
+        if (!id || !Number.isInteger(idNum) || idNum <= 0) {
+            return sendResponse(res, 400, "Invalid or missing cash-sending id (must be a positive integer)");
+        }
+
+        const { maintainsId, cashAmount, cashOf, note } = req.body ?? {};
+
+        // Validate maintainsId (UUID) when provided
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (maintainsId !== undefined) {
+            if (typeof maintainsId !== 'string' || !uuidRegex.test(maintainsId)) {
+                return sendResponse(res, 400, "Invalid maintainsId (must be UUID)");
+            }
+        }
+
+        if (cashAmount !== undefined) {
+            if (typeof cashAmount !== 'number' || !isFinite(cashAmount) || cashAmount <= 0) {
+                return sendResponse(res, 400, "cashAmount must be a positive number when provided");
+            }
+        }
+
+        if (cashOf !== undefined) {
+            if (typeof cashOf !== 'string') {
+                return sendResponse(res, 400, "cashOf must be an ISO string when provided");
+            }
+            const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+            if (!isoRegex.test(cashOf)) {
+                return sendResponse(res, 400, "cashOf must be an ISO string in UTC (e.g., 2025-10-26T18:00:00.000Z)");
+            }
+        }
+
+        if (note !== undefined && typeof note !== 'string') {
+            return sendResponse(res, 400, "note must be a string when provided");
+        }
+
+        try {
+            // Ensure record exists first
+            const existing = await SaleService.getCashSendingById(idNum);
+            if (!existing) return sendResponse(res, 404, "Cash sending not found");
+
+            const updated = await SaleService.updateCashSending(idNum, { maintainsId, cashAmount, cashOf, note });
+            if (!updated) return sendResponse(res, 404, "Cash sending not found");
+            return sendResponse(res, 200, "Cash sending updated successfully", updated);
+        } catch (error) {
+            console.error("Error updating cash sending:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to update cash sending");
         }
     });
 }

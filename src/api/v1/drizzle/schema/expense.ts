@@ -1,9 +1,9 @@
-import { decimal, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { decimal, pgTable, text, timestamp, uuid, integer } from 'drizzle-orm/pg-core';
 import { userTable } from './user';
 import { maintainsTable } from './maintains';
 
 export const expenseTable = pgTable('expenses', {
-  id: uuid('id').defaultRandom().primaryKey(),
+  id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
   userId: uuid('user_id').references(() => userTable.id).notNull(),
   maintainsId: uuid('maintains_id').references(() => maintainsTable.id),
   amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),

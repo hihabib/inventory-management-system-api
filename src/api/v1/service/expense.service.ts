@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, asc, and, gte, lte, sql } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewExpense, expenseTable } from "../drizzle/schema/expense";
 import { userTable } from "../drizzle/schema/user";
@@ -24,7 +24,11 @@ export class ExpenseService {
         return createdExpense;
     }
 
-    static async getExpenses(pagination: PaginationOptions, filter: FilterOptions) {
+    static async getExpenses(
+        pagination: PaginationOptions,
+        filter: FilterOptions,
+        sort: 'asc' | 'desc' = 'desc'
+    ) {
         const result = await filterWithPaginate(expenseTable, {
             pagination,
             filter,
@@ -62,13 +66,13 @@ export class ExpenseService {
                     location: maintainsTable.location
                 }
             },
-            orderBy: [desc(expenseTable.createdAt)]
+            orderBy: sort === 'asc' ? [asc(expenseTable.createdAt)] : [desc(expenseTable.createdAt)]
         });
 
         return result;
     }
 
-    static async getExpenseById(id: string) {
+    static async getExpenseById(id: number) {
         const [expense] = await db
             .select({
                 id: expenseTable.id,
@@ -100,7 +104,31 @@ export class ExpenseService {
         return expense;
     }
 
-    static async updateExpense(id: string, expenseData: Partial<NewExpense>) {
+    // Get total expense for a specific calendar date and maintains outlet
+    // Filters by the "date" column (not created_at) and sums "amount"
+    static async getTotalExpense(date: Date, maintainsId: string): Promise<number> {
+        // Define start and end of day range [00:00:00.000, 23:59:59.999]
+        const startDate = new Date(date);
+        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+
+        const [result] = await db
+            .select({
+                totalAmount: sql<number>`COALESCE(SUM(COALESCE(${expenseTable.amount}::numeric, 0)), 0)`
+            })
+            .from(expenseTable)
+            .where(
+                and(
+                    eq(expenseTable.maintainsId, maintainsId),
+                    gte(expenseTable.date, startDate),
+                    lte(expenseTable.date, endDate)
+                )
+            );
+
+        const total = Number(result?.totalAmount ?? 0);
+        return Number.isFinite(total) ? total : 0;
+    }
+
+    static async updateExpense(id: number, expenseData: Partial<NewExpense>) {
         // Check if expense exists
         const existingExpense = await db.select().from(expenseTable).where(eq(expenseTable.id, id));
         if (existingExpense.length === 0) {
@@ -123,7 +151,7 @@ export class ExpenseService {
         return updatedExpense;
     }
 
-    static async deleteExpense(id: string) {
+    static async deleteExpense(id: number) {
         // Check if expense exists
         const existingExpense = await db.select().from(expenseTable).where(eq(expenseTable.id, id));
         if (existingExpense.length === 0) {

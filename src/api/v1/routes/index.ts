@@ -15,7 +15,7 @@ import dashboardRoutes from './dashboard.route'
 import deliveryHistoryRoutes from './deliveryHistory.route'
 import stockBatchRoutes from './stockBatch.route'
 import expenseRoutes from './expense.route'
-import customerDueRoutes from '../route/customerDue.route'
+import customerDueRoutes from './customerDue.route'
 const router = Router();
 
 router.use("/users", userRoutes);

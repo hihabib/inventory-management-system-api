@@ -1,4 +1,4 @@
-import { jsonb, pgEnum, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { jsonb, pgEnum, pgTable, text, timestamp, uuid, varchar, numeric } from 'drizzle-orm/pg-core';
 
 export const maintainsTypeEnum = pgEnum("maintains_type", [
     'Outlet',
@@ -13,6 +13,7 @@ export const maintainsTable = pgTable('maintains', {
     type: maintainsTypeEnum('type').notNull().default('Outlet'),
     location: text('location').default(""),
     phone: jsonb('phone').$type<number[]>().default([]),
+    stockCash: numeric('stock_cash', { mode: 'number', scale: 2 }).notNull().default(0),
 });
 
 export type MaintainsTable = typeof maintainsTable.$inferSelect;

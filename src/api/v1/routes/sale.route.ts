@@ -11,6 +11,20 @@ router.get("/", SaleController.getSales);
 
 // GET /api/v1/sales/getDailyReportData - Get daily report data
 router.get("/getDailyReportData", SaleController.getDailyReportData);
+// GET /api/v1/sales/getMoneyReport - Get money report for a specific day and outlet
+router.get("/getMoneyReport", SaleController.getMoneyReport);
+
+// POST /api/v1/sales/cash-sending - Record cash sending entry
+router.post("/cash-sending", SaleController.createCashSending);
+
+// GET /api/v1/sales/cash-sending - List cash sending entries with pagination and filters
+router.get("/cash-sending", SaleController.getCashSendingList);
+
+// GET /api/v1/sales/cash-sending/:id - Get a specific cash sending entry by ID
+router.get("/cash-sending/:id", SaleController.getCashSendingById);
+
+// PUT /api/v1/sales/cash-sending/:id - Update a specific cash sending entry by ID
+router.put("/cash-sending/:id", SaleController.updateCashSending);
 
 // GET /api/v1/sales/:id - Get sale by ID
 router.get("/:id", SaleController.getSaleById);

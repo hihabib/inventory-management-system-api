@@ -35,8 +35,9 @@ export class CustomerDueController {
     // PUT /customer-due/:id - Update an existing customer due record
     static updateCustomerDue = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
+        const { id: updatedBy } = req.user;
         const customerDueData: Partial<NewCustomerDue> = req.body;
-        const updatedCustomerDue = await CustomerDueService.updateCustomerDue(id, customerDueData);
+        const updatedCustomerDue = await CustomerDueService.updateCustomerDue(id, customerDueData, updatedBy);
         
         sendResponse(res, 200, "Customer due record updated successfully", updatedCustomerDue);
     });

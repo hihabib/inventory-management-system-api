@@ -1,4 +1,4 @@
-import { desc, eq, or, like, sql, inArray } from "drizzle-orm";
+import { desc, eq, or, like, sql, inArray, and, gte, lt, lte } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
@@ -14,12 +14,12 @@ export class PaymentService {
         filter: FilterOptions = {}
     ) {
         const { page = 1, limit = 10 } = pagination;
-        
+
         // Handle search functionality
         let searchPaymentIds: number[] | null = null;
         if (filter.search && filter.search.length > 0) {
             const searchTerm = filter.search[0].toString().toLowerCase();
-            
+
             // Search for payments that match the criteria
             const searchResults = await db
                 .selectDistinct({ id: paymentTable.id })
@@ -36,9 +36,9 @@ export class PaymentService {
                         like(sql`LOWER(${saleTable.productName})`, `%${searchTerm}%`)
                     )
                 );
-            
+
             searchPaymentIds = searchResults.map(result => result.id);
-            
+
             // If no payments match the search, return empty result
             if (searchPaymentIds.length === 0) {
                 return {
@@ -52,16 +52,16 @@ export class PaymentService {
                 };
             }
         }
-        
+
         // Create filter object for the main query
         const mainFilter = { ...filter };
         delete mainFilter.search; // Remove search from filter as we handle it separately
-        
+
         // Add search payment IDs to filter if search was performed
         if (searchPaymentIds !== null) {
             mainFilter.id = searchPaymentIds; // filterWithPaginate expects arrays for inArray operations
         }
-        
+
         // First, get the unique payment IDs with pagination
         const paymentIdsResult = await filterWithPaginate(paymentTable, {
             pagination,
@@ -256,5 +256,57 @@ export class PaymentService {
             };
         }
         return payment;
+    }
+
+    // Get total payments breakdown for a specific maintains_id on a specific calendar day
+    static async getTotalPaymentsByMaintainsOnDate(
+        maintainsId: string,
+        dayStartUtc: Date
+    ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number }> {
+        try {
+            // Define start and end of day range [00:00:00.000, next day 00:00:00.000)
+            const startDate = new Date(dayStartUtc);
+            const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+
+            // Compute breakdown sums in DB: extract each key from JSONB and sum
+            const [result] = await db
+                .select({
+                    due: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'due')::numeric)), 0)`,
+                    card: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'card')::numeric)), 0)`,
+                    cash: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'cash')::numeric)), 0)`,
+                    bkash: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'bkash')::numeric)), 0)`,
+                    nogod: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'nogod')::numeric)), 0)`,
+                    sendForUse: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'sendForUse')::numeric)), 0)`
+                })
+                .from(paymentTable)
+                .where(
+                    and(
+                        eq(paymentTable.maintainsId, maintainsId),
+                        gte(paymentTable.createdAt, startDate),
+                        lte(paymentTable.createdAt, endDate)
+                    )
+                );
+
+            const out = {
+                due: Number.isFinite(Number(result?.due ?? 0)) ? Number(result?.due ?? 0) : 0,
+                card: Number.isFinite(Number(result?.card ?? 0)) ? Number(result?.card ?? 0) : 0,
+                cash: Number.isFinite(Number(result?.cash ?? 0)) ? Number(result?.cash ?? 0) : 0,
+                bkash: Number.isFinite(Number(result?.bkash ?? 0)) ? Number(result?.bkash ?? 0) : 0,
+                nogod: Number.isFinite(Number(result?.nogod ?? 0)) ? Number(result?.nogod ?? 0) : 0,
+                sendForUse: Number.isFinite(Number(result?.sendForUse ?? 0)) ? Number(result?.sendForUse ?? 0) : 0
+            };
+            // Ensure primitive numbers
+            return {
+                due: Number(out.due) || 0,
+                card: Number(out.card) || 0,
+                cash: Number(out.cash) || 0,
+                bkash: Number(out.bkash) || 0,
+                nogod: Number(out.nogod) || 0,
+                sendForUse: Number(out.sendForUse) || 0
+            };
+        } catch (err) {
+            console.error('[PaymentService] getTotalDueByMaintainsOnDate error:', err);
+            return { due: 0, card: 0, cash: 0, bkash: 0, nogod: 0, sendForUse: 0 };
+        }
     }
 }
