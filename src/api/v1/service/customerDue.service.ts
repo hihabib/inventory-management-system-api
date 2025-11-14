@@ -8,6 +8,7 @@ import { customerDueUpdatesTable } from "../drizzle/schema/customerDueUpdates";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { getCurrentDate } from "../utils/timezone";
 import { AppError } from "../utils/AppError";
+import { getSummary } from "../utils/summary";
 
 export class CustomerDueService {
     static async createCustomerDue(customerDueData: NewCustomerDue) {
@@ -168,12 +169,47 @@ export class CustomerDueService {
             }
         }
 
+        const summaryRow = await getSummary(customerDueTable, {
+            filter,
+            joins: [
+                {
+                    table: userTable,
+                    alias: 'user',
+                    condition: eq(customerDueTable.createdBy, userTable.id)
+                },
+                {
+                    table: customerTable,
+                    alias: 'customer',
+                    condition: eq(customerDueTable.customerId, customerTable.id)
+                },
+                {
+                    table: maintainsTable,
+                    alias: 'maintains',
+                    condition: eq(customerDueTable.maintainsId, maintainsTable.id)
+                }
+            ],
+            summarySelect: {
+                totalNumberOfDue: sql<number>`COUNT(*)`,
+                totalDueCreated: sql<number>`COALESCE(SUM(${customerDueTable.totalAmount}), 0)`,
+                totalDuePaid: sql<number>`COALESCE(SUM(${customerDueTable.paidAmount}), 0)`,
+                totalCurrentDue: sql<number>`COALESCE(SUM(${customerDueTable.totalAmount}), 0) - COALESCE(SUM(${customerDueTable.paidAmount}), 0)`,
+                totalDueCustomer: sql<number>`COUNT(DISTINCT ${customerDueTable.customerId})`
+            }
+        });
+
         return {
             ...result,
             list: result.list.map((r: any) => ({
                 ...r,
                 updates: updatesByDueId.get(r.id) ?? []
-            }))
+            })),
+            summary: {
+                totalNumberOfDue: Number(summaryRow?.totalNumberOfDue ?? 0),
+                totalDueCreated: Number(summaryRow?.totalDueCreated ?? 0),
+                totalDuePaid: Number(summaryRow?.totalDuePaid ?? 0),
+                totalCurrentDue: Number(summaryRow?.totalCurrentDue ?? 0),
+                totalDueCustomer: Number(summaryRow?.totalDueCustomer ?? 0)
+            }
         };
     }
 

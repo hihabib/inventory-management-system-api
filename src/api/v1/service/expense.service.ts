@@ -4,6 +4,7 @@ import { NewExpense, expenseTable } from "../drizzle/schema/expense";
 import { userTable } from "../drizzle/schema/user";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { getSummary } from "../utils/summary";
 import { getCurrentDate } from "../utils/timezone";
 
 export class ExpenseService {
@@ -69,7 +70,31 @@ export class ExpenseService {
             orderBy: sort === 'asc' ? [asc(expenseTable.createdAt)] : [desc(expenseTable.createdAt)]
         });
 
-        return result;
+        const summaryRow = await getSummary(expenseTable, {
+            filter,
+            joins: [
+                {
+                    table: userTable,
+                    alias: 'user',
+                    condition: eq(expenseTable.userId, userTable.id)
+                },
+                {
+                    table: maintainsTable,
+                    alias: 'maintains',
+                    condition: eq(expenseTable.maintainsId, maintainsTable.id)
+                }
+            ],
+            summarySelect: {
+                totalExpense: sql<number>`COALESCE(SUM(COALESCE(${expenseTable.amount}::numeric, 0)), 0)`
+            }
+        });
+
+        return {
+            ...result,
+            summary: {
+                totalExpense: Number(summaryRow?.totalExpense ?? 0)
+            }
+        };
     }
 
     static async getExpenseById(id: number) {

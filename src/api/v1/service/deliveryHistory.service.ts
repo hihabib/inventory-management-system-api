@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql, and } from "drizzle-orm";
+import { asc, desc, eq, sql, and, inArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
@@ -10,6 +10,7 @@ import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { randomUUID } from "crypto";
 import { getCurrentDate } from "../utils/timezone";
 import { productTable } from "../drizzle/schema/product";
+import { unitTable } from "../drizzle/schema/unit";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 
@@ -688,7 +689,7 @@ export class DeliveryHistoryService {
         //     filter['createdAt[to]'] = [toDate.toISOString()];
         // }
 
-        return await filterWithPaginate(deliveryHistoryTable, {
+        const result = await filterWithPaginate(deliveryHistoryTable, {
             pagination,
             filter: modifiedFilter,
             joins: [
@@ -719,6 +720,124 @@ export class DeliveryHistoryService {
                 ${productTable.sku}
             `)
         });
+
+        // Summary: sentQuantity as "[sum] [unit name]"
+        const sentWhere = await DeliveryHistoryService.buildWhereConditions(modifiedFilter);
+        let sentQuery: any = db
+            .select({
+                unitName: sql<string>`COALESCE(${unitTable.name}, '')`,
+                total: sql<number>`COALESCE(SUM(${deliveryHistoryTable.sentQuantity}), 0)`
+            })
+            .from(deliveryHistoryTable)
+            .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+            .groupBy(sql`COALESCE(${unitTable.name}, '')`);
+        if (sentWhere.length > 0) {
+            sentQuery = (sentQuery as any).where(and(...sentWhere));
+        }
+        const sentGroups = await (sentQuery as any);
+        const sentQuantity = (sentGroups || [])
+            .filter((g: any) => Number(g.total) > 0)
+            .map((g: any) => `${Number(g.total)} ${(g.unitName ?? '').toString()}`.trim())
+            .join(' + ');
+
+        // Summary: receivedQuantity as "[sum] [unit name]"
+        const receivedWhere = await DeliveryHistoryService.buildWhereConditions(modifiedFilter);
+        let receivedQuery: any = db
+            .select({
+                unitName: sql<string>`COALESCE(${unitTable.name}, '')`,
+                total: sql<number>`COALESCE(SUM(${deliveryHistoryTable.receivedQuantity}), 0)`
+            })
+            .from(deliveryHistoryTable)
+            .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+            .groupBy(sql`COALESCE(${unitTable.name}, '')`);
+        if (receivedWhere.length > 0) {
+            receivedQuery = (receivedQuery as any).where(and(...receivedWhere));
+        }
+        const receivedGroups = await (receivedQuery as any);
+        const receivedQuantity = (receivedGroups || [])
+            .filter((g: any) => Number(g.total) > 0)
+            .map((g: any) => `${Number(g.total)} ${(g.unitName ?? '').toString()}`.trim())
+            .join(' + ');
+
+        // Summary: orderedQuantity grouped by orderedUnit (fallback to product main unit name)
+        const orderedWhere = await DeliveryHistoryService.buildWhereConditions(modifiedFilter);
+        let orderedQuery: any = db
+            .select({
+                label: sql<string>`COALESCE(NULLIF(${deliveryHistoryTable.orderedUnit}, ''), ${unitTable.name})`,
+                total: sql<number>`COALESCE(SUM(${deliveryHistoryTable.orderedQuantity}), 0)`
+            })
+            .from(deliveryHistoryTable)
+            .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+            .groupBy(sql`COALESCE(NULLIF(${deliveryHistoryTable.orderedUnit}, ''), ${unitTable.name})`);
+        if (orderedWhere.length > 0) {
+            orderedQuery = (orderedQuery as any).where(and(...orderedWhere));
+        }
+        const orderedGroups = await (orderedQuery as any);
+
+        const orderedQuantity = (orderedGroups || [])
+            .filter(g => Number(g.total) > 0)
+            .map(g => `${Number(g.total)} ${(g.label ?? '').toString()}`)
+            .join(' + ');
+
+        return {
+            ...result,
+            summary: {
+                sentQuantity,
+                receivedQuantity,
+                orderedQuantity
+            }
+        };
+    }
+
+    // Build WHERE conditions using the same FilterOptions semantics as filterWithPaginate
+    // Supports direct columns and relationship filters (e.g., 'productCategory.id'), and date ranges '[from]/[to]'.
+    static async buildWhereConditions(filter: FilterOptions): Promise<any[]> {
+        const whereConditions: any[] = [];
+        const tableRefs: Record<string, any> = {
+            main: deliveryHistoryTable,
+            product: productTable,
+            productCategoryInProduct: productCategoryInProductTable,
+            productCategory: productCategoryTable
+        };
+
+        for (const [column, values] of Object.entries(filter || {})) {
+            if (!Array.isArray(values) || values.length === 0) continue;
+
+            if (column.includes('[') && column.includes(']')) {
+                const match = column.match(/^(.+)\[(from|to)\]$/);
+                if (match) {
+                    const [, fieldName, rangeType] = match;
+                    const dateValue = values[0];
+                    const targetTable = fieldName.includes('.') ? tableRefs[fieldName.split('.')[0]] : deliveryHistoryTable;
+                    const columnName = fieldName.includes('.') ? fieldName.split('.')[1] : fieldName;
+                    const tableColumn = targetTable[columnName as keyof typeof targetTable];
+                    if (!tableColumn) continue;
+                    if (rangeType === 'from') whereConditions.push(sql`${tableColumn} >= ${new Date(dateValue)}`);
+                    else if (rangeType === 'to') whereConditions.push(sql`${tableColumn} <= ${new Date(dateValue)}`);
+                    continue;
+                }
+            }
+
+            if (column.includes('.')) {
+                const [aliasName, columnName] = column.split('.');
+                const tableRef = tableRefs[aliasName];
+                if (!tableRef) continue;
+                const tableColumn = tableRef[columnName as keyof typeof tableRef];
+                if (!tableColumn) continue;
+                if (values.length === 1) whereConditions.push(eq(tableColumn as any, values[0] as any));
+                else whereConditions.push(inArray(tableColumn as any, values as any[]));
+            } else {
+                const tableColumn = (deliveryHistoryTable as any)[column];
+                if (!tableColumn) continue;
+                if (values.length === 1) whereConditions.push(eq(tableColumn, values[0]));
+                else whereConditions.push(inArray(tableColumn, values as any[]));
+            }
+        }
+
+        return whereConditions;
     }
 
     static async getDeliveryHistoryById(id: string) {

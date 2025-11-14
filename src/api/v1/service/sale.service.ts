@@ -18,6 +18,7 @@ import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
 import { StockBatchService } from "./stockBatch.service";
+import { getSummary } from "../utils/summary";
 
 interface ProductItem {
     productName: string;
@@ -822,7 +823,7 @@ export class SaleService {
         const orderByExpr = sort === 'asc'
             ? asc(cashSendingTable.createdAt)
             : desc(cashSendingTable.createdAt);
-        return await filterWithPaginate(cashSendingTable, {
+        const result = await filterWithPaginate(cashSendingTable, {
             pagination,
             filter,
             orderBy: orderByExpr,
@@ -871,6 +872,34 @@ export class SaleService {
                 }
             }
         });
+
+        const summaryRow = await getSummary(cashSendingTable, {
+            filter,
+            joins: [
+                {
+                    table: userTable,
+                    alias: 'user',
+                    condition: eq(cashSendingTable.userId, userTable.id),
+                    type: 'left'
+                },
+                {
+                    table: maintainsTable,
+                    alias: 'maintains',
+                    condition: eq(cashSendingTable.maintainsId, maintainsTable.id),
+                    type: 'left'
+                }
+            ],
+            summarySelect: {
+                totalCashAmount: sql<number>`COALESCE(SUM(${cashSendingTable.cashAmount}), 0)`
+            }
+        });
+
+        return {
+            ...result,
+            summary: {
+                totalCashAmount: Number(summaryRow?.totalCashAmount ?? 0)
+            }
+        };
     }
 
     static async getCashSendingById(id: number) {
