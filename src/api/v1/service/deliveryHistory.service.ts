@@ -661,6 +661,9 @@ export class DeliveryHistoryService {
         pagination: PaginationOptions = {},
         filter: FilterOptions = {}
     ) {
+
+        console.log("filter", filter);
+        
         // Expand productCategory.id filter to include child categories
         let modifiedFilter = { ...filter };
         if (filter && (filter as any)['productCategory.id']) {
@@ -730,6 +733,8 @@ export class DeliveryHistoryService {
             })
             .from(deliveryHistoryTable)
             .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(productCategoryInProductTable, eq(productCategoryInProductTable.productId, productTable.id))
+            .leftJoin(productCategoryTable, eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id))
             .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
             .groupBy(sql`COALESCE(${unitTable.name}, '')`);
         if (sentWhere.length > 0) {
@@ -750,6 +755,8 @@ export class DeliveryHistoryService {
             })
             .from(deliveryHistoryTable)
             .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(productCategoryInProductTable, eq(productCategoryInProductTable.productId, productTable.id))
+            .leftJoin(productCategoryTable, eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id))
             .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
             .groupBy(sql`COALESCE(${unitTable.name}, '')`);
         if (receivedWhere.length > 0) {
@@ -770,6 +777,8 @@ export class DeliveryHistoryService {
             })
             .from(deliveryHistoryTable)
             .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+            .leftJoin(productCategoryInProductTable, eq(productCategoryInProductTable.productId, productTable.id))
+            .leftJoin(productCategoryTable, eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id))
             .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
             .groupBy(sql`COALESCE(NULLIF(${deliveryHistoryTable.orderedUnit}, ''), ${unitTable.name})`);
         if (orderedWhere.length > 0) {
