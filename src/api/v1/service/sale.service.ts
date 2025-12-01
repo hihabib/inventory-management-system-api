@@ -468,8 +468,8 @@ export class SaleService {
             console.log(`Date filtering: Input=${date}, Start=${startDate.toISOString()}, End=${endDate.toISOString()}`);
 
             // Get all category IDs (including children) for filtering
-            const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
-            const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652");;
+            const targetCategoryId = maintainsId === "1160ad56-ac12-4034-8091-ae60c31eb624" ? "a530a1b7-a808-473f-b9a4-166aac84d20e" : "cd9e69b0-8601-4f91-b121-46386eeb2c00"; // if maintain is production then use Ingredients category, otherwise use Outlet Products category
+            const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"); // remove "Non-selling product" category id
 
             // 1. Fetch Order-Completed delivery history records
             const orderCompletedData = await db
@@ -791,6 +791,81 @@ export class SaleService {
             console.error("Error fetching daily report data:", error);
             throw new Error("Failed to fetch daily report data");
         }
+    }
+
+
+    static async getSummeryReport(from: string, to: string, maintainsId: string) {
+        const fromDateUtc = new Date(from);
+        const toDateUtc = new Date(to);
+
+        if (isNaN(fromDateUtc.getTime()) || isNaN(toDateUtc.getTime())) {
+            throw new Error("Invalid 'from' or 'to' date");
+        }
+
+        const formatDhakaDate = (d: Date) => new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Dhaka',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(d);
+
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+        const firstKey = formatDhakaDate(fromDateUtc);
+        const lastKey = formatDhakaDate(toDateUtc);
+
+        const result: Record<string, any> = {};
+
+        const [y, m, d] = firstKey.split('-').map(Number);
+        let currentStartUtc = new Date(Date.UTC(y, (m - 1), d) - (6 * 60 * 60 * 1000));
+
+        while (true) {
+            const currentKey = formatDhakaDate(currentStartUtc);
+            const rangeStartUtc = new Date(currentStartUtc);
+            const rangeEndUtc = new Date(currentStartUtc.getTime() + MS_PER_DAY - 1);
+
+            const [agg] = await db
+                .select({
+                    totalQuantity: sql<number>`COALESCE(SUM(${dailyStockRecordTable.quantity}), 0)`,
+                    totalAmount: sql<number>`COALESCE(SUM(${dailyStockRecordTable.quantity} * ${dailyStockRecordTable.pricePerQuantity}), 0)`
+                })
+                .from(dailyStockRecordTable)
+                .where(and(
+                    eq(dailyStockRecordTable.maintainsId, maintainsId),
+                    gte(dailyStockRecordTable.createdAt, rangeStartUtc),
+                    lte(dailyStockRecordTable.createdAt, rangeEndUtc)
+                ));
+
+            const [saleAgg] = await db
+                .select({
+                    totalQuantity: sql<number>`COALESCE(SUM(${saleTable.saleQuantity}), 0)`,
+                    totalAmount: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
+                })
+                .from(saleTable)
+                .where(and(
+                    eq(saleTable.maintainsId, maintainsId),
+                    gte(saleTable.createdAt, rangeStartUtc),
+                    lte(saleTable.createdAt, rangeEndUtc)
+                ));
+
+            const prevQuantity = Number(Number(agg?.totalQuantity ?? 0).toFixed(3));
+            const prevAmount = Number(Number(agg?.totalAmount ?? 0).toFixed(2));
+            const saleQuantity = Number(Number(saleAgg?.totalQuantity ?? 0).toFixed(3));
+            const saleAmount = Number(Number(saleAgg?.totalAmount ?? 0).toFixed(2));
+
+            result[currentKey] = {
+                "Previous Stock": { "Quantity": prevQuantity, "Amount": prevAmount },
+                "Import From Factory": { "Quantity": 0, "Amount": 0 },
+                "Total Stock": { "Quantity": 0, "Amount": 0 },
+                "Sale": { "Quantity": saleQuantity, "Amount": saleAmount },
+                "Rest Stock": { "Quantity": 0, "Amount": 0 }
+            };
+
+            if (currentKey === lastKey) break;
+
+            currentStartUtc = new Date(currentStartUtc.getTime() + MS_PER_DAY);
+        }
+
+        return result;
     }
 
     static async createCashSending(

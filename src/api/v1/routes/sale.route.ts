@@ -13,6 +13,7 @@ router.get("/", SaleController.getSales);
 router.get("/getDailyReportData", SaleController.getDailyReportData);
 // GET /api/v1/sales/getMoneyReport - Get money report for a specific day and outlet
 router.get("/getMoneyReport", SaleController.getMoneyReport);
+router.get("/getSummeryReport", SaleController.getSummeryReport);
 
 // POST /api/v1/sales/cash-sending - Record cash sending entry
 router.post("/cash-sending", SaleController.createCashSending);

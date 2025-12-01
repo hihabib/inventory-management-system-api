@@ -421,4 +421,30 @@ export class SaleController {
             return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to update cash sending");
         }
     });
+
+    static getSummeryReport = requestHandler(async (req: AuthRequest, res: Response) => {
+        const { from, to, maintains_id } = req.query;
+
+        if (!from || !to || !maintains_id) {
+            return sendResponse(res, 400, "Parameters 'from', 'to' and 'maintains_id' are required");
+        }
+
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(maintains_id as string)) {
+            return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
+        }
+
+        const fromDate = new Date(from as string);
+        const toDate = new Date(to as string);
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+            return sendResponse(res, 400, "Invalid date format for 'from' or 'to'");
+        }
+
+        try {
+            const data = await SaleService.getSummeryReport(from as string, to as string, maintains_id as string);
+            return sendResponse(res, 200, "Summery report generated successfully", data);
+        } catch (error) {
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to generate summery report");
+        }
+    });
 }
