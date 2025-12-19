@@ -1,0 +1,1 @@
+ALTER TABLE "product_category" ALTER COLUMN "vat" SET DATA TYPE numeric;

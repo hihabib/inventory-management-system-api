@@ -265,10 +265,8 @@ export class CustomerDueService {
     }
 
     // Sum of collectedAmount for a given calendar date and maintains outlet
-    static async getTotalCreditCollection(date: Date, maintainsId: string): Promise<number> {
-        // Define start and end of day range [00:00:00.000, 23:59:59.999]
-        const startDate = new Date(date);
-        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+    static async getTotalCreditCollection(startDate: Date, endDate:Date, maintainsId: string): Promise<number> {
+       
 
         const [result] = await db
             .select({

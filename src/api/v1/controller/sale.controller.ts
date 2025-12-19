@@ -152,17 +152,15 @@ export class SaleController {
     });
 
     static getDailyReportData = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { date, maintains_id, isDummy, reduceSalePercentage } = req.query;
+        const { startDate, endDate, maintains_id, isDummy, reduceSalePercentage } = req.query;
         
-        // Validate required parameters
-        if (!date || !maintains_id) {
-            return sendResponse(res, 400, "Both 'date' and 'maintains_id' query parameters are required");
+        if (!startDate || !endDate || !maintains_id) {
+            return sendResponse(res, 400, "Parameters 'startDate', 'endDate' and 'maintains_id' are required");
         }
 
-        // Validate date format (ISO format)
-        const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/;
-        if (!dateRegex.test(date as string)) {
-            return sendResponse(res, 400, "Invalid date format. Please use ISO format (e.g., 2025-10-26T18:00:00.000Z)");
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})$/;
+        if (!isoRegex.test(startDate as string) || !isoRegex.test(endDate as string)) {
+            return sendResponse(res, 400, "Invalid date format. Use ISO UTC (e.g., 2025-10-26T18:00:00.000Z)");
         }
 
         // Validate maintains_id format (should be UUID)
@@ -190,7 +188,8 @@ export class SaleController {
 
         try {
             const reportData = await SaleService.getDailyReportData(
-                date as string, 
+                startDate as string,
+                endDate as string,
                 maintains_id as string,
                 isDummy === "true",
                 reduceSalePercentage ? parseFloat(reduceSalePercentage as string) : undefined
@@ -203,13 +202,12 @@ export class SaleController {
     });
 
     // GET /api/v1/sales/getMoneyReport
-    // Query params: maintains_id (UUID), date (UTC ISO string)
+    // Query params: maintains_id (UUID), startDate (ISO), endDate (ISO)
     static getMoneyReport = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { maintains_id, date } = req.query;
+        const { maintains_id, startDate, endDate } = req.query;
 
-        // Validate required parameters
-        if (!maintains_id || !date) {
-            return sendResponse(res, 400, "Both 'maintains_id' and 'date' query parameters are required");
+        if (!maintains_id || !startDate || !endDate) {
+            return sendResponse(res, 400, "Parameters 'maintains_id', 'startDate' and 'endDate' are required");
         }
 
         // Validate maintains_id format (UUID)
@@ -218,78 +216,16 @@ export class SaleController {
             return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
         }
 
-        // Validate date format (strict UTC ISO string with 'Z')
-        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
-        if (!isoRegex.test(date as string)) {
-            return sendResponse(res, 400, "Invalid date format. Must be a UTC ISO string (e.g., 2025-10-26T18:00:00.000Z)");
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            return sendResponse(res, 400, "Invalid date format for 'startDate' or 'endDate'");
         }
 
         try {
             const maintainsId = maintains_id as string;
-            const dayStartUtc = new Date(date as string);
-            console.log("dayStartUtc", dayStartUtc);
-            
-            // 1) Aggregations and sums (DB-level)
-            let [
-                totalOutgoingProductPrice,
-                mdSir,
-                atifAgroOffice,
-                totalDiscount,
-                payments,
-                previousCashRow,
-                creditCollection,
-                expense,
-                sentToBank
-            ] = await Promise.all([
-                SaleService.getTotalOutgoingProductPrice(dayStartUtc, maintainsId),
-                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
-                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc, "5a4a8d7f-3704-4ffc-a116-7810b99d696a"),
-                SaleService.getTotalDiscountByDate(maintainsId, dayStartUtc),
-                PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, dayStartUtc),
-                db
-                    .select({ stockCash: maintainsTable.stockCash })
-                    .from(maintainsTable)
-                    .where(eq(maintainsTable.id, maintainsId)),
-                CustomerDueService.getTotalCreditCollection(dayStartUtc, maintainsId),
-                ExpenseService.getTotalExpense(dayStartUtc, maintainsId),
-                SaleService.getTotalCashSending(dayStartUtc, maintainsId)
-            ]);
-
-            const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
-
-            // 2) Derivations
-            const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0));
-            const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
-
-            const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
-            const totalCashAfterSend = (totalCashBeforeSend || 0) - (sentToBank || 0);
-
-            // // 3) Update maintains.stockCash with totalCashAfterSend
-            // await db
-            //     .update(maintainsTable)
-            //     .set({ stockCash: totalCashAfterSend, updatedAt: getCurrentDate() })
-            //     .where(eq(maintainsTable.id, maintainsId));
-
-            const result = {
-                totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
-                mdSir: Number(mdSir || 0),
-                atifAgroOffice: Number(atifAgroOffice || 0),
-                discount: Number(discount || 0),
-                dueSale: Number(dueSale || 0),
-                cardSale: Number(cardSale || 0),
-                cashSale: Number(cashSale || 0),
-                bkashSale: Number(bkashSale || 0),
-                nogodSale: Number(nogodSale || 0),
-                sendForUse: Number(sendForUse || 0),
-                previousCash: Number(previousCash || 0),
-                creditCollection: Number(creditCollection || 0),
-                expense: Number(expense || 0),
-                totalCashBeforeSend: Number(totalCashBeforeSend || 0),
-                sentToBank: Number(sentToBank || 0),
-                totalCashAfterSend: Number(totalCashAfterSend || 0)
-            };
-
-            return sendResponse(res, 200, "Money report generated successfully", result);
+            const data = await SaleService.getMoneyReport(start, end, maintainsId);
+            return sendResponse(res, 200, "Money report generated successfully", data);
         } catch (error) {
             console.error("Error generating money report:", error);
             return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to generate money report");

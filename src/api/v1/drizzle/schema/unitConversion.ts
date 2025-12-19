@@ -3,7 +3,6 @@ import { productTable } from './product';
 import { unitTable } from './unit';
 
 export const unitConversionTable = pgTable('unit_conversion', {
-    id: uuid('id').defaultRandom().unique(),
     createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
     productId: uuid('product_id').references(() => productTable.id, { onDelete: 'no action' }).notNull(),

@@ -7,15 +7,15 @@ import { sendResponse } from "../utils/response";
 
 export class ProductCategoryController {
     static createProductCategory = requestHandler(async (req: Request, res: Response) => {
-        const { name, description, parentId } = req.body as NewProductCategory;
-        const createdProductCategory = await ProductCategoryService.createProductCategory({ name, description, parentId });
+        const { name, description, parentId, vat } = req.body as NewProductCategory;
+        const createdProductCategory = await ProductCategoryService.createProductCategory({ name, description, parentId, vat });
         sendResponse(res, 201, 'Product category created successfully', createdProductCategory);
     })
 
     static updateProductCategory = requestHandler(async (req: Request, res: Response) => {
         const { id } = req.params;
-        const { name, description, parentId } = req.body as Partial<NewProductCategory>;
-        const updatedProductCategory = await ProductCategoryService.updateProductCategory(id, { name, description, parentId });
+        const { name, description, parentId, vat } = req.body as Partial<NewProductCategory>;
+        const updatedProductCategory = await ProductCategoryService.updateProductCategory(id, { name, description, parentId, vat });
         sendResponse(res, 200, 'Product category updated successfully', updatedProductCategory);
     })
 

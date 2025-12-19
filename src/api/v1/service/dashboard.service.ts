@@ -1,14 +1,23 @@
-import { and, count, desc, eq, gte, lte, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql, sum, inArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
+import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { productTable } from "../drizzle/schema/product";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { saleTable } from "../drizzle/schema/sale";
+import { customerTable } from "../drizzle/schema/customer";
 import { getCurrentDate } from "../utils/timezone";
 
-interface WeeklySalesData {
-    day: string;
+interface DashboardFilters {
+    start: string;
+    end: string;
+    maintainsIds?: string[];
+    customerCategoryIds?: string[];
+}
+
+interface SaleGraphPoint {
+    date: string;
     sales: number;
     barPoint: number;
 }
@@ -25,120 +34,139 @@ interface DashboardData {
     totalSales: number;
     totalProducts: number;
     totalSalePayment: number;
-    weeklySales: WeeklySalesData[];
+    saleDataGraphReport: SaleGraphPoint[];
     topSellingProducts: TopSellingProduct[];
 }
 
 export class DashboardService {
-    static async getDashboardData(): Promise<DashboardData> {
-        // Get current month start and end dates
-        const now = getCurrentDate();
-        const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    static async getDashboardData(filters: DashboardFilters): Promise<DashboardData> {
+        const startDate = new Date(filters.start);
+        const endDate = new Date(filters.end);
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            throw new Error("Invalid 'start' or 'end' date");
+        }
 
-        // Get total counts for current month
-        const [transactionCount] = await db.select({ count: count() })
+        const maintainsIds = Array.isArray(filters.maintainsIds) && filters.maintainsIds.length > 0
+            ? filters.maintainsIds
+            : undefined;
+        const categoryIds = Array.isArray(filters.customerCategoryIds) && filters.customerCategoryIds.length > 0
+            ? filters.customerCategoryIds
+            : undefined;
+
+        // Resolve payment IDs filtered by maintains, date range and optional customer category filter via joins
+        const paymentsFilteredRows = await db
+            .select({
+                paymentId: paymentTable.id,
+                totalAmount: paymentTable.totalAmount
+            })
             .from(paymentTable)
+            .leftJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
+            .leftJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+            .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
             .where(and(
-                gte(paymentTable.createdAt, currentMonthStart),
-                lte(paymentTable.createdAt, currentMonthEnd)
+                gte(paymentTable.createdAt, startDate),
+                lte(paymentTable.createdAt, endDate),
+                maintainsIds ? inArray(paymentTable.maintainsId, maintainsIds) : sql`true`,
+                categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
             ));
-        const [saleCount] = await db.select({ count: count() })
+
+        const uniquePaymentIds = Array.from(new Set(paymentsFilteredRows.map(r => r.paymentId)));
+        const totalPaymentAmount = paymentsFilteredRows
+            .reduce((acc, r) => acc + Number(r.totalAmount || 0), 0);
+
+        // transactionCount = distinct payment IDs count
+        const transactionCountValue = uniquePaymentIds.length;
+
+        // saleCount with date, maintains and category filters
+        const [saleCountRow] = await db
+            .select({
+                count: sql<number>`COUNT(*)`
+            })
             .from(saleTable)
+            .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
             .where(and(
-                gte(saleTable.createdAt, currentMonthStart),
-                lte(saleTable.createdAt, currentMonthEnd)
+                gte(saleTable.createdAt, startDate),
+                lte(saleTable.createdAt, endDate),
+                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+                categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
             ));
-        const [productCount] = await db.select({ count: count() })
+
+        // productCount filtered only by date range (no maintains/customerCategory relation)
+        const [productCountRow] = await db
+            .select({ count: count() })
             .from(productTable)
             .where(and(
-                gte(productTable.createdAt, currentMonthStart),
-                lte(productTable.createdAt, currentMonthEnd)
-            ));
-        const [totalPayment] = await db.select({ total: sum(paymentTable.totalAmount) })
-            .from(paymentTable)
-            .where(and(
-                gte(paymentTable.createdAt, currentMonthStart),
-                lte(paymentTable.createdAt, currentMonthEnd)
+                gte(productTable.createdAt, startDate),
+                lte(productTable.createdAt, endDate)
             ));
 
-        // Get last 7 days sales data
-        const weeklySales = await this.getWeeklySalesData();
+        // Sales graph data for the date range with filters
+        const saleDataGraphReport = await this.getSaleDataGraphReport(startDate, endDate, maintainsIds, categoryIds);
 
-        // Get top 5 selling products
         const topSellingProducts = await this.getTopSellingProducts();
 
         return {
-            totalTransactions: transactionCount.count,
-            totalSales: saleCount.count,
-            totalProducts: productCount.count,
-            totalSalePayment: Number(totalPayment.total) || 0,
-            weeklySales,
+            totalTransactions: Number(transactionCountValue || 0),
+            totalSales: Number(saleCountRow?.count ?? 0),
+            totalProducts: Number(productCountRow?.count ?? 0),
+            totalSalePayment: Number(totalPaymentAmount || 0),
+            saleDataGraphReport,
             topSellingProducts
         };
     }
 
-    private static async getWeeklySalesData(): Promise<WeeklySalesData[]> {
-        const today = getCurrentDate();
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(today.getDate() - 6);
-        
-        // Set time to start of day for sevenDaysAgo and end of day for today in UTC
-        sevenDaysAgo.setUTCHours(0, 0, 0, 0);
-        today.setUTCHours(23, 59, 59, 999);
-
+    private static async getSaleDataGraphReport(
+        startDate: Date,
+        endDate: Date,
+        maintainsIds?: string[],
+        customerCategoryIds?: string[]
+    ): Promise<SaleGraphPoint[]> {
         const salesData = await db
             .select({
                 date: sql<string>`DATE(${saleTable.createdAt})`,
                 totalSales: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
             })
             .from(saleTable)
-            .where(
-                and(
-                    gte(saleTable.createdAt, sevenDaysAgo),
-                    lte(saleTable.createdAt, today)
-                )
-            )
+            .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
+            .where(and(
+                gte(saleTable.createdAt, startDate),
+                lte(saleTable.createdAt, endDate),
+                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+                customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`
+            ))
             .groupBy(sql`DATE(${saleTable.createdAt})`)
             .orderBy(sql`DATE(${saleTable.createdAt})`);
 
-        // Create array for last 7 days with day names
-        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const weeklySales: WeeklySalesData[] = [];
+        // Build continuous date range
+        const points: SaleGraphPoint[] = [];
+        const dayMillis = 24 * 60 * 60 * 1000;
+        const start = new Date(startDate);
+        start.setUTCHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setUTCHours(23, 59, 59, 999);
 
-        // First pass: collect all sales data
-        const salesValues: number[] = [];
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date(today);
-            date.setUTCDate(today.getUTCDate() - i);
-            const dateString = date.toISOString().split('T')[0];
-            
-            const salesForDay = salesData.find(sale => sale.date === dateString);
-            const salesAmount = salesForDay ? Number(salesForDay.totalSales) : 0;
-            salesValues.push(salesAmount);
-        }
+        const salesByDate: Record<string, number> = {};
+        salesData.forEach(row => {
+            salesByDate[row.date] = Number(row.totalSales || 0);
+        });
 
-        // Find maximum sales value for scaling
-        const maxSales = Math.max(...salesValues);
-        
-        // Second pass: create final array with barPoint calculations
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date(today);
-            date.setUTCDate(today.getUTCDate() - i);
-            const dayName = dayNames[date.getUTCDay()];
-            const salesAmount = salesValues[6 - i];
-            
-            // Calculate barPoint: scale sales to fit within 1000
-            const barPoint = maxSales > 0 ? Math.round((salesAmount / maxSales) * 1000) : 0;
-            
-            weeklySales.push({
-                day: dayName,
-                sales: Number(salesAmount.toFixed(2)),
-                barPoint: barPoint
+        for (let t = start.getTime(); t <= end.getTime(); t += dayMillis) {
+            const d = new Date(t);
+            const key = d.toISOString().split('T')[0];
+            const value = salesByDate[key] ?? 0;
+            points.push({
+                date: d.toLocaleDateString(),
+                sales: Number(value.toFixed(2)),
+                barPoint: 0 // to be populated after scaling
             });
         }
 
-        return weeklySales;
+        const maxSales = points.reduce((m, p) => Math.max(m, p.sales), 0);
+        points.forEach(p => {
+            p.barPoint = maxSales > 0 ? Math.round((p.sales / maxSales) * 1000) : 0;
+        });
+
+        return points;
     }
 
     private static async getTopSellingProducts(): Promise<TopSellingProduct[]> {

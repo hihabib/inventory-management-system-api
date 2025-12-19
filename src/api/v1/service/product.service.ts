@@ -12,6 +12,7 @@ import { maintainsTable } from "../drizzle/schema/maintains";
 import { productCategoryTable } from '../drizzle/schema/productCategory';
 import { getCurrentDate } from '../utils/timezone';
 import { stockBatchTable } from '../drizzle/schema/stockBatch';
+import { ProductCategoryService } from "./productCategory.service";
 
 
 export class ProductService {
@@ -366,14 +367,15 @@ export class ProductService {
         });
 
         // Get categories for this product
-        const categories = categoryInfo.map(cat => ({
+        const categories = await Promise.all(categoryInfo.map(async (cat) => ({
             id: cat.categoryId,
             name: cat.categoryName,
             description: cat.description,
             createdAt: cat.createdAt,
             updatedAt: cat.updatedAt,
-            parentId: cat.parentId
-        }));
+            parentId: cat.parentId,
+            vat: await ProductCategoryService.findEffectiveVat(cat.categoryId)
+        })));
 
         // Format units for this product
         const units = allUnits.map(unit => ({
@@ -636,6 +638,15 @@ export class ProductService {
             .where(inArray(unitConversionTable.productId, productIds));
 
         // Step 5: Process and combine results
+        // Get effective VAT for all categories found
+        const uniqueCategoryIds = [...new Set(categoryInfo.map(c => c.categoryId))];
+        const categoryVatMap = new Map<string, number | null>();
+
+        await Promise.all(uniqueCategoryIds.map(async (id) => {
+            const vat = await ProductCategoryService.findEffectiveVat(id);
+            categoryVatMap.set(id, vat);
+        }));
+
         const productsWithStock = productsResult.list.map(product => {
             // Get all stock records for this product
             const productStocks = stockInfo.filter(s => s.productId === product.id);
@@ -663,7 +674,15 @@ export class ProductService {
             // Get categories for this product
             const productCategories = categoryInfo
                 .filter(c => c.productId === product.id)
-                .map(c => ({ id: c.categoryId, name: c.categoryName, description: c.description, parentId: c.parentId, createdAt: c.createdAt, updatedAt: c.updatedAt }));
+                .map(c => ({ 
+                    id: c.categoryId, 
+                    name: c.categoryName, 
+                    description: c.description, 
+                    parentId: c.parentId, 
+                    createdAt: c.createdAt, 
+                    updatedAt: c.updatedAt,
+                    vat: categoryVatMap.get(c.categoryId) ?? null
+                }));
 
             // Get all units for this product
             const productUnits = allUnits

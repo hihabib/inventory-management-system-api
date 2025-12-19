@@ -261,13 +261,10 @@ export class PaymentService {
     // Get total payments breakdown for a specific maintains_id on a specific calendar day
     static async getTotalPaymentsByMaintainsOnDate(
         maintainsId: string,
-        dayStartUtc: Date
+        startDate: Date,
+        endDate: Date
     ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number }> {
         try {
-            // Define start and end of day range [00:00:00.000, next day 00:00:00.000)
-            const startDate = new Date(dayStartUtc);
-            const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
-
             // Compute breakdown sums in DB: extract each key from JSONB and sum
             const [result] = await db
                 .select({

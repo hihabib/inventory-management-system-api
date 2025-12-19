@@ -131,10 +131,8 @@ export class ExpenseService {
 
     // Get total expense for a specific calendar date and maintains outlet
     // Filters by the "date" column (not created_at) and sums "amount"
-    static async getTotalExpense(date: Date, maintainsId: string): Promise<number> {
-        // Define start and end of day range [00:00:00.000, 23:59:59.999]
-        const startDate = new Date(date);
-        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
+    static async getTotalExpense(startDate: Date, endDate:Date, maintainsId: string): Promise<number> {
+    
 
         const [result] = await db
             .select({

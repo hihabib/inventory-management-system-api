@@ -19,6 +19,9 @@ import { productCategoryInProductTable } from "../drizzle/schema/productCategory
 import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/filterWithPaginate';
 import { StockBatchService } from "./stockBatch.service";
 import { getSummary } from "../utils/summary";
+import { PaymentService } from "./payment.service";
+import { ExpenseService } from "./expense.service";
+import { CustomerDueService } from "./customerDue.service";
 
 interface ProductItem {
     productName: string;
@@ -338,12 +341,10 @@ export class SaleService {
     // Get total discount for a specific calendar date and maintains outlet (optional customerCategoryId)
     static async getTotalDiscountByDate(
         maintainsId: string,
-        dayStartUtc: Date,
+        startDate: Date,
+        endDate:Date,
         customerCategoryId?: string
     ): Promise<number> {
-        // Define start and end of day range [00:00:00.000, 23:59:59.999]
-        const startDate = new Date(dayStartUtc);
-        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
 
         // Build where clause based on provided parameters
         const baseWhere = and(
@@ -372,11 +373,7 @@ export class SaleService {
 
     // Get total outgoing product price for a specific calendar date and maintains outlet
     // Calculates gross daily sale amount (SUM(quantityInMainUnit * mainUnitPrice)) without discount
-    static async getTotalOutgoingProductPrice(date: Date, maintainsId: string): Promise<number> {
-        // Define start and end of day range [start, next day start) in UTC
-        const startDate = new Date(date);
-        const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
-
+    static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string): Promise<number> {
         // Use the same category filter as daily report for consistency
         const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
         const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(
@@ -404,11 +401,7 @@ export class SaleService {
 
     // Get total cash sending amount for a specific calendar date and maintains outlet
     // Filters cash_sending by maintains_id and cash_of, sums cash_amount in the database
-    static async getTotalCashSending(date: Date, maintainsId: string): Promise<number> {
-        // Define start and end of day range [00:00:00.000, 23:59:59.999]
-        const startDate = new Date(date);
-        const endDate = new Date((startDate.getTime() + 24 * 60 * 60 * 1000) - 1);
-
+    static async getTotalCashSending(startDate: Date, endDate: Date, maintainsId: string): Promise<number> {
         const [result] = await db
             .select({
                 totalCash: sql<number>`COALESCE(SUM(${cashSendingTable.cashAmount}), 0)`
@@ -424,6 +417,58 @@ export class SaleService {
 
         const total = Number(result?.totalCash ?? 0);
         return Number.isFinite(total) ? total : 0;
+    }
+
+    static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
+        const [
+            totalOutgoingProductPrice,
+            mdSir,
+            atifAgroOffice,
+            totalDiscount,
+            payments,
+            previousCashRow,
+            creditCollection,
+            expense,
+            sentToBank
+        ] = await Promise.all([
+            this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a"),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate),
+            PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate),
+            db
+                .select({ stockCash: maintainsTable.stockCash })
+                .from(maintainsTable)
+                .where(eq(maintainsTable.id, maintainsId)),
+            CustomerDueService.getTotalCreditCollection(startDate, endDate, maintainsId),
+            ExpenseService.getTotalExpense(startDate, endDate, maintainsId),
+            this.getTotalCashSending(startDate, endDate, maintainsId)
+        ]);
+
+        const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
+        const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0));
+        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
+        const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
+        const totalCashAfterSend = (totalCashBeforeSend || 0) - (sentToBank || 0);
+
+        return {
+            totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
+            mdSir: Number(mdSir || 0),
+            atifAgroOffice: Number(atifAgroOffice || 0),
+            discount: Number(discount || 0),
+            dueSale: Number(dueSale || 0),
+            cardSale: Number(cardSale || 0),
+            cashSale: Number(cashSale || 0),
+            bkashSale: Number(bkashSale || 0),
+            nogodSale: Number(nogodSale || 0),
+            sendForUse: Number(sendForUse || 0),
+            previousCash: Number(previousCash || 0),
+            creditCollection: Number(creditCollection || 0),
+            expense: Number(expense || 0),
+            totalCashBeforeSend: Number(totalCashBeforeSend || 0),
+            sentToBank: Number(sentToBank || 0),
+            totalCashAfterSend: Number(totalCashAfterSend || 0)
+        };
     }
 
     // Helper function to get all category IDs including children recursively
@@ -453,19 +498,15 @@ export class SaleService {
         return Array.from(categoryIds);
     }
 
-    static async getDailyReportData(date: string, maintainsId: string, isDummy: boolean = false, reduceSalePercentage?: number) {
+    static async getDailyReportData(startDateIso: string, endDateIso: string, maintainsId: string, isDummy: boolean = false, reduceSalePercentage?: number) {
         try {
-            // Parse the input date (which represents start of day in Dhaka time as UTC)
-            const inputDate = new Date(date);
+            const startDate = new Date(startDateIso);
+            const endDate = new Date(endDateIso);
+            if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+                throw new Error("Invalid date format for 'startDate' or 'endDate'");
+            }
 
-            // The input date is already the start of the day in Dhaka time (converted to UTC)
-            // For example: "2025-10-29T18:00:00.000Z" = Oct 30, 2025 00:00:00 Dhaka time
-            const startDate = new Date(inputDate);
-
-            // Create end date: add 24 hours to get the end of the day in Dhaka time
-            const endDate = new Date(inputDate.getTime() + 24 * 60 * 60 * 1000);
-
-            console.log(`Date filtering: Input=${date}, Start=${startDate.toISOString()}, End=${endDate.toISOString()}`);
+        
 
             // Get all category IDs (including children) for filtering
             const targetCategoryId = maintainsId === "1160ad56-ac12-4034-8091-ae60c31eb624" ? "a530a1b7-a808-473f-b9a4-166aac84d20e" : "cd9e69b0-8601-4f91-b121-46386eeb2c00"; // if maintain is production then use Ingredients category, otherwise use Outlet Products category

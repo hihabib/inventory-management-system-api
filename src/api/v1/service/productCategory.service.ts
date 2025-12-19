@@ -84,22 +84,60 @@ export class ProductCategoryService {
         });
     }
 
+    static async findEffectiveVat(categoryId: string): Promise<number | null> {
+        let currentId: string | null = categoryId;
+        
+        while (currentId) {
+             const [category] = await db.select({
+                vat: productCategoryTable.vat,
+                parentId: productCategoryTable.parentId
+             })
+             .from(productCategoryTable)
+             .where(eq(productCategoryTable.id, currentId));
+             
+             if (!category) break;
+             
+             if (category.vat !== null) {
+                 return category.vat;
+             }
+             
+             currentId = category.parentId;
+        }
+        
+        return null;
+    }
+
     static async getProductCategories(
         pagination: PaginationOptions = {},
         filter?: FilterOptions
     ) {
-        return await filterWithPaginate(productCategoryTable, {
+        const result = await filterWithPaginate(productCategoryTable, {
             pagination,
             filter: {
                 ...filter,
                 'isDeleted': [false]
             }
         });
+
+        // @ts-ignore
+        const enrichedData = await Promise.all(result.list.map(async (category) => {
+            const effectiveVat = await this.findEffectiveVat(category.id);
+            return { ...category, vat: effectiveVat };
+        }));
+
+        return {
+            ...result,
+            list: enrichedData
+        };
     }
 
     static async getProductCategoryById(id: string) {
         const [productCategory] = await db.select().from(productCategoryTable).where(eq(productCategoryTable.id, id));
-        return productCategory;
+        
+        if (!productCategory) return undefined;
+
+        const effectiveVat = await this.findEffectiveVat(id);
+        return { ...productCategory, vat: effectiveVat };
     }
 
  
