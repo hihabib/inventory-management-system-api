@@ -8,6 +8,7 @@ import { productCategoryInProductTable } from "../drizzle/schema/productCategory
 import { saleTable } from "../drizzle/schema/sale";
 import { customerTable } from "../drizzle/schema/customer";
 import { getCurrentDate } from "../utils/timezone";
+import { maintainsTable } from "../drizzle/schema/maintains";
 
 interface DashboardFilters {
     start: string;
@@ -103,7 +104,7 @@ export class DashboardService {
         // Sales graph data for the date range with filters
         const saleDataGraphReport = await this.getSaleDataGraphReport(startDate, endDate, maintainsIds, categoryIds);
 
-        const topSellingProducts = await this.getTopSellingProducts();
+        const topSellingProducts = await this.getTopSellingProducts(startDate, endDate, maintainsIds, categoryIds);
 
         return {
             totalTransactions: Number(transactionCountValue || 0),
@@ -123,7 +124,7 @@ export class DashboardService {
     ): Promise<SaleGraphPoint[]> {
         const salesData = await db
             .select({
-                date: sql<string>`DATE(${saleTable.createdAt})`,
+                date: sql<string>`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`,
                 totalSales: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
             })
             .from(saleTable)
@@ -134,31 +135,48 @@ export class DashboardService {
                 maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
                 customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`
             ))
-            .groupBy(sql`DATE(${saleTable.createdAt})`)
-            .orderBy(sql`DATE(${saleTable.createdAt})`);
-
-        // Build continuous date range
-        const points: SaleGraphPoint[] = [];
-        const dayMillis = 24 * 60 * 60 * 1000;
-        const start = new Date(startDate);
-        start.setUTCHours(0, 0, 0, 0);
-        const end = new Date(endDate);
-        end.setUTCHours(23, 59, 59, 999);
+            .groupBy(sql`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`)
+            .orderBy(sql`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`);
 
         const salesByDate: Record<string, number> = {};
         salesData.forEach(row => {
             salesByDate[row.date] = Number(row.totalSales || 0);
         });
 
-        for (let t = start.getTime(); t <= end.getTime(); t += dayMillis) {
-            const d = new Date(t);
-            const key = d.toISOString().split('T')[0];
-            const value = salesByDate[key] ?? 0;
+        const points: SaleGraphPoint[] = [];
+        const timeZone = 'Asia/Dhaka';
+        const dateFormatter = new Intl.DateTimeFormat('en-CA', { 
+            timeZone, 
+            year: 'numeric', 
+            month: '2-digit', 
+            day: '2-digit' 
+        });
+
+        const startStr = dateFormatter.format(startDate);
+        const endStr = dateFormatter.format(endDate);
+        
+        const parseDate = (s: string) => {
+            const [y, m, d] = s.split('-').map(Number);
+            return new Date(Date.UTC(y, m - 1, d));
+        }
+
+        const current = parseDate(startStr);
+        const end = parseDate(endStr);
+
+        while (current <= end) {
+            const dateKey = current.toISOString().split('T')[0];
+            const value = salesByDate[dateKey] ?? 0;
+            
+            const [y, m, d] = dateKey.split('-');
+            const displayDate = `${Number(m)}/${Number(d)}/${y}`;
+
             points.push({
-                date: d.toLocaleDateString(),
+                date: displayDate,
                 sales: Number(value.toFixed(2)),
-                barPoint: 0 // to be populated after scaling
+                barPoint: 0
             });
+            
+            current.setUTCDate(current.getUTCDate() + 1);
         }
 
         const maxSales = points.reduce((m, p) => Math.max(m, p.sales), 0);
@@ -169,7 +187,15 @@ export class DashboardService {
         return points;
     }
 
-    private static async getTopSellingProducts(): Promise<TopSellingProduct[]> {
+    private static async getTopSellingProducts(
+        startDate: Date,
+        endDate: Date,
+        maintainsIds?: string[],
+        customerCategoryIds?: string[]
+    ): Promise<TopSellingProduct[]> {
+        const SPECIAL_MAINTAINS_ID = "1160ad56-ac12-4034-8091-ae60c31eb624";
+        const shouldRestrictToOutlet = !maintainsIds || !maintainsIds.includes(SPECIAL_MAINTAINS_ID);
+
         const topProducts = await db
             .select({
                 productId: saleTable.productId,
@@ -178,9 +204,18 @@ export class DashboardService {
                 totalRevenue: sql<number>`SUM(${saleTable.saleAmount})`
             })
             .from(saleTable)
+            .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
+            .leftJoin(maintainsTable, eq(saleTable.maintainsId, maintainsTable.id))
+            .where(and(
+                gte(saleTable.createdAt, startDate),
+                lte(saleTable.createdAt, endDate),
+                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+                customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`,
+                shouldRestrictToOutlet ? eq(maintainsTable.type, 'Outlet') : sql`true`
+            ))
             .groupBy(saleTable.productId, saleTable.productName)
             .orderBy(desc(sql`SUM(${saleTable.saleQuantity})`), desc(sql`SUM(${saleTable.saleAmount})`))
-            .limit(5);
+            // .limit(5);
 
         // Get category information for each product
         const topSellingProducts: TopSellingProduct[] = [];
