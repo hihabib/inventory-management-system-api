@@ -968,17 +968,58 @@ export class SaleService {
                     lte(saleTable.createdAt, rangeEndUtc)
                 ));
 
+            const deliveryRows = await db
+                .select({
+                    receivedQuantity: deliveryHistoryTable.receivedQuantity,
+                    latestUnitPriceData: deliveryHistoryTable.latestUnitPriceData,
+                    mainUnitId: productTable.mainUnitId
+                })
+                .from(deliveryHistoryTable)
+                .leftJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
+                .where(and(
+                    eq(deliveryHistoryTable.maintainsId, maintainsId),
+                    eq(deliveryHistoryTable.status, "Order-Completed"),
+                    gte(deliveryHistoryTable.receivedAt, rangeStartUtc),
+                    lte(deliveryHistoryTable.receivedAt, rangeEndUtc)
+                ));
+
+            let importQuantity = 0;
+            let importAmount = 0;
+
+            for (const row of deliveryRows) {
+                const qty = Number(row.receivedQuantity);
+                if (!isNaN(qty)) {
+                    importQuantity += qty;
+
+                    if (row.mainUnitId && Array.isArray(row.latestUnitPriceData)) {
+                        const priceData = (row.latestUnitPriceData as any[]).find((d: any) => d.unitId === row.mainUnitId);
+                        if (priceData && priceData.pricePerQuantity) {
+                            const price = Number(priceData.pricePerQuantity);
+                            if (!isNaN(price)) {
+                                importAmount += qty * price;
+                            }
+                        }
+                    }
+                }
+            }
+
             const prevQuantity = Number(Number(agg?.totalQuantity ?? 0).toFixed(3));
             const prevAmount = Number(Number(agg?.totalAmount ?? 0).toFixed(2));
             const saleQuantity = Number(Number(saleAgg?.totalQuantity ?? 0).toFixed(3));
             const saleAmount = Number(Number(saleAgg?.totalAmount ?? 0).toFixed(2));
 
+            const totalStockQuantity = Number((prevQuantity + importQuantity).toFixed(3));
+            const totalStockAmount = Number((prevAmount + importAmount).toFixed(2));
+
+            const restStockQuantity = Number((totalStockQuantity - saleQuantity).toFixed(3));
+            const restStockAmount = Number((totalStockAmount - saleAmount).toFixed(2));
+
             result[currentKey] = {
                 "Previous Stock": { "Quantity": prevQuantity, "Amount": prevAmount },
-                "Import From Factory": { "Quantity": 0, "Amount": 0 },
-                "Total Stock": { "Quantity": 0, "Amount": 0 },
+                "Import From Factory": { "Quantity": Number(importQuantity.toFixed(3)), "Amount": Number(importAmount.toFixed(2)) },
+                "Total Stock": { "Quantity": totalStockQuantity, "Amount": totalStockAmount },
                 "Sale": { "Quantity": saleQuantity, "Amount": saleAmount },
-                "Rest Stock": { "Quantity": 0, "Amount": 0 }
+                "Rest Stock": { "Quantity": restStockQuantity, "Amount": restStockAmount }
             };
 
             if (currentKey === lastKey) break;
