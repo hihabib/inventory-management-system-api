@@ -11,6 +11,7 @@ export const cashSendingTable = pgTable('cash_sending', {
   cashAmount: numeric('cash_amount', { mode: 'number', scale: 2 }).notNull(),
   sendingTime: timestamp('sending_time', { withTimezone: true }).notNull(),
   cashOf: timestamp('cash_of', { withTimezone: true }).notNull(),
+  cashSendingBy: text('cash_sending_by').default('By Bank').notNull(),
 });
 
 export type CashSendingTable = typeof cashSendingTable.$inferSelect;

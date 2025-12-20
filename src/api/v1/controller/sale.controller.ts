@@ -118,6 +118,25 @@ export class SaleController {
         }
     });
 
+    static cancelPayment = requestHandler(async (req: AuthRequest, res: Response) => {
+        const userId = req.user?.id;
+        if (!userId) return sendResponse(res, 401, "User not authenticated");
+
+        const { id } = req.params;
+        const paymentId = Number(id);
+        if (!id || !Number.isInteger(paymentId) || paymentId <= 0) {
+            return sendResponse(res, 400, "Invalid or missing payment id (must be a positive integer)");
+        }
+
+        try {
+            const result = await SaleService.cancelPayment(paymentId);
+            return sendResponse(res, 200, "Payment canceled successfully", result);
+        } catch (error) {
+            console.error("Error canceling payment:", error);
+            return sendResponse(res, 500, error instanceof Error ? error.message : "Failed to cancel payment");
+        }
+    });
+
     static getSales = requestHandler(async (req: AuthRequest, res: Response) => {
         const { pagination, filter } = getFilterAndPaginationFromRequest(req);
         
@@ -236,7 +255,7 @@ export class SaleController {
         const userId = req.user?.id;
         if (!userId) return sendResponse(res, 401, "User not authenticated");
 
-        const { maintainsId, cashAmount, cashOf, note } = req.body ?? {};
+        const { maintainsId, cashAmount, cashOf, note, cashSendingBy } = req.body ?? {};
 
         // Validate maintainsId (UUID)
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -262,8 +281,12 @@ export class SaleController {
             return sendResponse(res, 400, "note must be a string when provided");
         }
 
+        if (cashSendingBy !== undefined && typeof cashSendingBy !== 'string') {
+            return sendResponse(res, 400, "cashSendingBy must be a string when provided");
+        }
+
         try {
-            const created = await SaleService.createCashSending({ maintainsId, cashAmount, cashOf, note }, userId);
+            const created = await SaleService.createCashSending({ maintainsId, cashAmount, cashOf, note, cashSendingBy }, userId);
             return sendResponse(res, 201, "Cash sending recorded successfully", created);
         } catch (error) {
             console.error("Error creating cash sending:", error);
@@ -314,7 +337,7 @@ export class SaleController {
             return sendResponse(res, 400, "Invalid or missing cash-sending id (must be a positive integer)");
         }
 
-        const { maintainsId, cashAmount, cashOf, note } = req.body ?? {};
+        const { maintainsId, cashAmount, cashOf, note, cashSendingBy } = req.body ?? {};
 
         // Validate maintainsId (UUID) when provided
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -344,12 +367,16 @@ export class SaleController {
             return sendResponse(res, 400, "note must be a string when provided");
         }
 
+        if (cashSendingBy !== undefined && typeof cashSendingBy !== 'string') {
+            return sendResponse(res, 400, "cashSendingBy must be a string when provided");
+        }
+
         try {
             // Ensure record exists first
             const existing = await SaleService.getCashSendingById(idNum);
             if (!existing) return sendResponse(res, 404, "Cash sending not found");
 
-            const updated = await SaleService.updateCashSending(idNum, { maintainsId, cashAmount, cashOf, note });
+            const updated = await SaleService.updateCashSending(idNum, { maintainsId, cashAmount, cashOf, note, cashSendingBy });
             if (!updated) return sendResponse(res, 404, "Cash sending not found");
             return sendResponse(res, 200, "Cash sending updated successfully", updated);
         } catch (error) {

@@ -1205,9 +1205,11 @@ export class StockBatchService {
      * Process multiple batch sales in a single transaction
      * Each sale item contains: stockBatchId, unitId, quantity
      */
-    static async processMultiBatchSale(saleItems: Array<{ stockBatchId: string, unitId: string, quantity: number }>) {
-
-        await db.transaction(async (tx) => {
+    static async processMultiBatchSale(
+        saleItems: Array<{ stockBatchId: string, unitId: string, quantity: number }>,
+        txArg?: any
+    ) {
+        const runSale = async (tx: any) => {
             // Group sale items by batch to accumulate reductions per batch
             const batchReductions = new Map<string, {
                 totalMainUnitReduction: number,
@@ -1330,7 +1332,97 @@ export class StockBatchService {
                 totalItems: saleItems.length,
                 results
             };
-        });
+        };
+
+        if (txArg) {
+            return await runSale(txArg);
+        }
+
+        return await db.transaction(runSale);
+    }
+
+    static async revertMultiBatchSale(
+        saleItems: Array<{ stockBatchId: string, unitId: string, quantity: number }>,
+        txArg?: any
+    ) {
+        const runRevert = async (tx: any) => {
+            const batchReductions = new Map<string, {
+                totalMainUnitReduction: number,
+                saleItems: Array<{ unitId: string, quantity: number, mainUnitReduced: number }>,
+                productId: string
+            }>();
+
+            for (const saleItem of saleItems) {
+                const { stockBatchId, unitId, quantity } = saleItem;
+
+                const [batch] = await tx.select().from(stockBatchTable).where(eq(stockBatchTable.id, stockBatchId));
+                if (!batch) {
+                    throw new Error(`Batch not found with ID: ${stockBatchId}`);
+                }
+
+                const [product] = await tx.select().from(productTable).where(eq(productTable.id, batch.productId));
+                if (!product || !product.mainUnitId) {
+                    throw new Error(`Product or main unit not found for product ID: ${batch.productId}`);
+                }
+
+                const unitConversions = await tx.select().from(unitConversionTable)
+                    .where(eq(unitConversionTable.productId, batch.productId));
+
+                const saleUnitConversion = unitConversions.find(uc => uc.unitId === unitId);
+                if (!saleUnitConversion) {
+                    throw new Error(`Unit conversion not found for product ${batch.productId} or sale unit ${unitId}`);
+                }
+
+                const mainUnitQuantityToRestore = Number(
+                    (quantity / saleUnitConversion.conversionFactor).toFixed(3)
+                );
+
+                if (!batchReductions.has(stockBatchId)) {
+                    batchReductions.set(stockBatchId, {
+                        totalMainUnitReduction: 0,
+                        saleItems: [],
+                        productId: batch.productId
+                    });
+                }
+
+                const batchData = batchReductions.get(stockBatchId)!;
+                batchData.totalMainUnitReduction += mainUnitQuantityToRestore;
+                batchData.saleItems.push({
+                    unitId,
+                    quantity,
+                    mainUnitReduced: mainUnitQuantityToRestore
+                });
+            }
+
+            const results = [];
+
+            for (const [stockBatchId, batchData] of batchReductions) {
+                const allUpdates = await this.updateAllUnitsInBatch(
+                    tx,
+                    stockBatchId,
+                    batchData.productId,
+                    -batchData.totalMainUnitReduction
+                );
+
+                for (const saleItemData of batchData.saleItems) {
+                    results.push({
+                        stockBatchId,
+                        saleUnitId: saleItemData.unitId,
+                        saleQuantity: saleItemData.quantity,
+                        mainUnitRestored: saleItemData.mainUnitReduced,
+                        allUpdates
+                    });
+                }
+            }
+
+            return { totalItems: saleItems.length, results };
+        };
+
+        if (txArg) {
+            return await runRevert(txArg);
+        }
+
+        return await db.transaction(runRevert);
     }
 
     /**

@@ -4,6 +4,8 @@ import { maintainsTable } from "./maintains";
 import { customerCategoryTable, discountTypeEnum } from "./customerCategory";
 import { customerTable } from "./customer";
 import { productTable } from "./product";
+import { stockBatchTable } from "./stockBatch";
+import { unitTable } from "./unit";
 
 export const saleTable = pgTable('sale', {
     id: uuid('id').defaultRandom().primaryKey(),
@@ -22,6 +24,8 @@ export const saleTable = pgTable('sale', {
     saleAmount: numeric('sale_amount', { mode: 'number', scale: 2 }).notNull(),
     pricePerUnit: numeric('price_per_unit', { mode: 'number', scale: 2 }).notNull(),
     unit: varchar('unit', { length: 20 }).notNull(),
+    saleUnitId: uuid('sale_unit_id').references(() => unitTable.id).default(null),
+    stockBatchId: uuid('stock_batch_id').references(() => stockBatchTable.id).default(null),
     quantityInMainUnit: numeric('quantity_in_main_unit', { mode: 'number', scale: 3 }),
     mainUnitPrice: numeric('main_unit_price', { mode: 'number', scale: 2 }),
 })

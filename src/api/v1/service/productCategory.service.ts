@@ -111,10 +111,30 @@ export class ProductCategoryService {
         pagination: PaginationOptions = {},
         filter?: FilterOptions
     ) {
+        let modifiedFilter = { ...filter };
+
+        // Handle hierarchical category filtering
+        if (filter && filter['id']) {
+            const categoryIds = Array.isArray(filter['id'])
+                ? filter['id']
+                : [filter['id']];
+
+            // Get all child categories for each provided category ID
+            const allCategoryIds = new Set(categoryIds);
+
+            for (const categoryId of categoryIds) {
+                const childCategories = await this.getAllChildCategories(categoryId);
+                childCategories.forEach(id => allCategoryIds.add(id));
+            }
+
+            // Update the filter to include all category IDs (parent + children)
+            modifiedFilter['id'] = Array.from(allCategoryIds);
+        }
+
         const result = await filterWithPaginate(productCategoryTable, {
             pagination,
             filter: {
-                ...filter,
+                ...modifiedFilter,
                 'isDeleted': [false]
             }
         });
@@ -129,6 +149,29 @@ export class ProductCategoryService {
             ...result,
             list: enrichedData
         };
+    }
+
+    /**
+     * Recursively get all child category IDs for a given parent category ID
+     * @param parentCategoryId - The parent category ID
+     * @returns Array of child category IDs
+     */
+    static async getAllChildCategories(parentCategoryId: string): Promise<string[]> {
+        const childCategories = await db
+            .select({ id: productCategoryTable.id })
+            .from(productCategoryTable)
+            .where(eq(productCategoryTable.parentId, parentCategoryId));
+
+        const childIds: string[] = [];
+
+        for (const child of childCategories) {
+            childIds.push(child.id);
+            // Recursively get children of this child
+            const grandChildren = await this.getAllChildCategories(child.id);
+            childIds.push(...grandChildren);
+        }
+
+        return childIds;
     }
 
     static async getProductCategoryById(id: string) {

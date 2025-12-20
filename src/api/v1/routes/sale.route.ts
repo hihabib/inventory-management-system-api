@@ -15,6 +15,9 @@ router.get("/getDailyReportData", SaleController.getDailyReportData);
 router.get("/getMoneyReport", SaleController.getMoneyReport);
 router.get("/getSummeryReport", SaleController.getSummeryReport);
 
+// POST /api/v1/sales/payments/:id/cancel - Cancel a payment and revert related sales
+router.post("/payments/:id/cancel", SaleController.cancelPayment);
+
 // POST /api/v1/sales/cash-sending - Record cash sending entry
 router.post("/cash-sending", SaleController.createCashSending);
 

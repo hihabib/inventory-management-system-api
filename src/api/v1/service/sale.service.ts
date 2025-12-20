@@ -1,6 +1,7 @@
 import { eq, and, gte, lte, sum, sql, inArray, lt, gt, asc, desc } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable } from "../drizzle/schema/customerDue";
+import { customerDueUpdatesTable } from "../drizzle/schema/customerDueUpdates";
 import { PaymentMethod, paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { saleTable } from "../drizzle/schema/sale";
@@ -66,7 +67,7 @@ export class SaleService {
                 }));
 
                 // Process stock reduction using the multi-batch sale service
-                await StockBatchService.processMultiBatchSale(saleItems);
+                await StockBatchService.processMultiBatchSale(saleItems, tx);
 
                 const saleIds: string[] = [];
 
@@ -178,6 +179,8 @@ export class SaleService {
                         saleAmount: formattedSaleAmount,
                         pricePerUnit: formattedPricePerUnit,
                         unit: product.unit,
+                        saleUnitId: product.unitId,
+                        stockBatchId: product.stockBatchId,
                         quantityInMainUnit: quantityInMainUnit,
                         mainUnitPrice: mainUnitPrice
                     }).returning();
@@ -250,27 +253,6 @@ export class SaleService {
                 }));
                 await tx.insert(paymentSaleTable).values(paymentSaleEntries);
 
-                // After successful sale completion, clean up empty stock batches
-                console.log('🧹 [SaleService] Starting post-sale stock batch cleanup');
-
-                // Extract unique product-outlet combinations from the sale
-                const saleItemsForCleanup = saleData.products.map(product => ({
-                    productId: product.productId,
-                    maintainsId: saleData.maintainsId
-                }));
-
-                // Perform cleanup outside the main transaction to avoid conflicts
-                // This is done after the sale is committed to ensure data consistency
-                setImmediate(async () => {
-                    try {
-                        const cleanupResult = await StockBatchService.cleanupEmptyStockBatchesAfterSale(saleItemsForCleanup);
-                        console.log('✅ [SaleService] Stock batch cleanup completed:', cleanupResult);
-                    } catch (cleanupError) {
-                        console.error('❌ [SaleService] Stock batch cleanup failed:', cleanupError);
-                        // Don't throw error here as the sale has already been completed successfully
-                    }
-                });
-
                 return {
                     sales: saleIds,
                     payment: payment,
@@ -281,6 +263,97 @@ export class SaleService {
                 // Transaction will automatically rollback on error
                 throw error;
             }
+        });
+    }
+
+    static async cancelPayment(paymentId: number) {
+        return await db.transaction(async (tx) => {
+            const [payment] = await tx
+                .select({
+                    id: paymentTable.id,
+                    customerDueId: paymentTable.customerDueId
+                })
+                .from(paymentTable)
+                .where(eq(paymentTable.id, paymentId))
+                .limit(1);
+
+            if (!payment) {
+                throw new Error("Payment not found");
+            }
+
+            const paymentSales = await tx
+                .select({
+                    saleId: paymentSaleTable.saleId
+                })
+                .from(paymentSaleTable)
+                .where(eq(paymentSaleTable.paymentId, paymentId));
+
+            const saleIds = paymentSales.map(r => r.saleId);
+            if (saleIds.length === 0) {
+                throw new Error("No sales found for this payment");
+            }
+
+            const sales = await tx
+                .select({
+                    id: saleTable.id,
+                    saleQuantity: saleTable.saleQuantity,
+                    saleUnitId: saleTable.saleUnitId,
+                    stockBatchId: saleTable.stockBatchId
+                })
+                .from(saleTable)
+                .where(inArray(saleTable.id, saleIds));
+
+            if (sales.length !== saleIds.length) {
+                throw new Error("Some sale records were not found for this payment");
+            }
+
+            const revertItems = sales.map(s => {
+                if (!s.stockBatchId || !s.saleUnitId) {
+                    throw new Error("Cannot cancel this payment: sale records are missing batch/unit references");
+                }
+                return {
+                    stockBatchId: s.stockBatchId,
+                    unitId: s.saleUnitId,
+                    quantity: Number(s.saleQuantity)
+                };
+            });
+
+            await StockBatchService.revertMultiBatchSale(revertItems, tx);
+
+            if (payment.customerDueId) {
+                const [customerDue] = await tx
+                    .select({
+                        id: customerDueTable.id,
+                        paidAmount: customerDueTable.paidAmount
+                    })
+                    .from(customerDueTable)
+                    .where(eq(customerDueTable.id, payment.customerDueId))
+                    .limit(1);
+
+                if (customerDue) {
+                    if (Number(customerDue.paidAmount) > 0) {
+                        throw new Error("Cannot cancel this payment: due has already been collected");
+                    }
+
+                    const [updatesCountRow] = await tx
+                        .select({ count: sql<number>`COUNT(*)` })
+                        .from(customerDueUpdatesTable)
+                        .where(eq(customerDueUpdatesTable.customerDueId, customerDue.id));
+
+                    if (Number(updatesCountRow?.count ?? 0) > 0) {
+                        throw new Error("Cannot cancel this payment: due has update history");
+                    }
+
+                    await tx.delete(customerDueUpdatesTable).where(eq(customerDueUpdatesTable.customerDueId, customerDue.id));
+                    await tx.delete(customerDueTable).where(eq(customerDueTable.id, customerDue.id));
+                }
+            }
+
+            await tx.delete(paymentSaleTable).where(eq(paymentSaleTable.paymentId, paymentId));
+            await tx.delete(saleTable).where(inArray(saleTable.id, saleIds));
+            await tx.delete(paymentTable).where(eq(paymentTable.id, paymentId));
+
+            return { paymentId, canceledSales: saleIds.length };
         });
     }
 
@@ -374,28 +447,21 @@ export class SaleService {
     // Get total outgoing product price for a specific calendar date and maintains outlet
     // Calculates gross daily sale amount (SUM(quantityInMainUnit * mainUnitPrice)) without discount
     static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string): Promise<number> {
-        // Use the same category filter as daily report for consistency
-        const targetCategoryId = "cd9e69b0-8601-4f91-b121-46386eeb2c00";
-        const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(
-            catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"
-        );
         const [result] = await db
             .select({
                 totalOutgoingPrice: sql<number>`COALESCE(SUM(COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)), 0)`
             })
             .from(saleTable)
-            .innerJoin(productTable, eq(saleTable.productId, productTable.id))
-            .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
             .where(
                 and(
                     eq(saleTable.maintainsId, maintainsId),
                     gte(saleTable.createdAt, startDate),
-                    inArray(productCategoryInProductTable.productCategoryId, allCategoryIds),
                     lt(saleTable.createdAt, endDate)
                 )
-            )
+            );
 
         const total = Number(result?.totalOutgoingPrice ?? 0);
+        console.log("Number.isFinite(total) ? total : 0", Number.isFinite(total) ? total : 0)
         return Number.isFinite(total) ? total : 0;
     }
 
@@ -420,12 +486,15 @@ export class SaleService {
     }
 
     static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
+        // Start payments promise separately to preserve type inference
+        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate);
+
         const [
             totalOutgoingProductPrice,
             mdSir,
             atifAgroOffice,
+            tasteAndSample,
             totalDiscount,
-            payments,
             previousCashRow,
             creditCollection,
             expense,
@@ -434,8 +503,8 @@ export class SaleService {
             this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId),
             this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
             this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a"),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e"),
             this.getTotalDiscountByDate(maintainsId, startDate, endDate),
-            PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate),
             db
                 .select({ stockCash: maintainsTable.stockCash })
                 .from(maintainsTable)
@@ -445,8 +514,10 @@ export class SaleService {
             this.getTotalCashSending(startDate, endDate, maintainsId)
         ]);
 
+        const payments = await paymentsPromise;
+
         const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
-        const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0));
+        const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
         const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
         const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
         const totalCashAfterSend = (totalCashBeforeSend || 0) - (sentToBank || 0);
@@ -455,6 +526,7 @@ export class SaleService {
             totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
             mdSir: Number(mdSir || 0),
             atifAgroOffice: Number(atifAgroOffice || 0),
+            tasteAndSample: Number(tasteAndSample || 0),
             discount: Number(discount || 0),
             dueSale: Number(dueSale || 0),
             cardSale: Number(cardSale || 0),
@@ -512,8 +584,20 @@ export class SaleService {
             const targetCategoryId = maintainsId === "1160ad56-ac12-4034-8091-ae60c31eb624" ? "a530a1b7-a808-473f-b9a4-166aac84d20e" : "cd9e69b0-8601-4f91-b121-46386eeb2c00"; // if maintain is production then use Ingredients category, otherwise use Outlet Products category
             const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"); // remove "Non-selling product" category id
 
+            // Fetch valid product IDs first to avoid join multiplication (Cartesian product issue)
+            let validProductIds: string[] = [];
+            if (allCategoryIds.length > 0) {
+                const validProducts = await db
+                    .selectDistinct({ id: productCategoryInProductTable.productId })
+                    .from(productCategoryInProductTable)
+                    .where(inArray(productCategoryInProductTable.productCategoryId, allCategoryIds));
+                validProductIds = validProducts.map(p => p.id);
+            }
+
+            const hasProducts = validProductIds.length > 0;
+
             // 1. Fetch Order-Completed delivery history records
-            const orderCompletedData = await db
+            const orderCompletedData = hasProducts ? await db
                 .select({
                     productId: deliveryHistoryTable.productId,
                     productName: productTable.name,
@@ -524,19 +608,18 @@ export class SaleService {
                 .from(deliveryHistoryTable)
                 .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
                 .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
-                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Order-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
                         lt(deliveryHistoryTable.sentAt, endDate),
-                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
+                        inArray(deliveryHistoryTable.productId, validProductIds)
                     )
-                );
+                ) : [];
 
             // 2. Fetch Return-Completed delivery history records
-            const returnCompletedData = await db
+            const returnCompletedData = hasProducts ? await db
                 .select({
                     productId: deliveryHistoryTable.productId,
                     productName: productTable.name,
@@ -547,22 +630,21 @@ export class SaleService {
                 .from(deliveryHistoryTable)
                 .innerJoin(productTable, eq(deliveryHistoryTable.productId, productTable.id))
                 .innerJoin(unitTable, eq(deliveryHistoryTable.unitId, unitTable.id))
-                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
                         lt(deliveryHistoryTable.sentAt, endDate),
-                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
+                        inArray(deliveryHistoryTable.productId, validProductIds)
                     )
-                );
+                ) : [];
 
             console.log("startDate", startDate);
             console.log("endDate", endDate);
 
             // 3. Fetch aggregated sale data
-            const saleData = await db
+            const saleData = hasProducts ? await db
                 .select({
                     productId: saleTable.productId,
                     productName: productTable.name,
@@ -575,20 +657,19 @@ export class SaleService {
                 .from(saleTable)
                 .innerJoin(productTable, eq(saleTable.productId, productTable.id))
                 .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
-                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
                 .where(
                     and(
                         eq(saleTable.maintainsId, maintainsId),
                         gte(saleTable.createdAt, startDate),
                         lt(saleTable.createdAt, endDate),
-                        inArray(productCategoryInProductTable.productCategoryId, allCategoryIds)
+                        inArray(saleTable.productId, validProductIds)
                     )
                 )
-                .groupBy(saleTable.productId, productTable.name, unitTable.name, productTable.sku);
+                .groupBy(saleTable.productId, productTable.name, unitTable.name, productTable.sku) : [];
 
             // 4. Get all products with their main unit names filtered by category
-            const allProductsWithMainUnit = await db
-                .select({
+            const allProductsWithMainUnit = hasProducts ? await db
+                .selectDistinct({
                     productId: productTable.id,
                     productName: productTable.name,
                     mainUnitName: unitTable.name,
@@ -596,8 +677,7 @@ export class SaleService {
                 })
                 .from(productTable)
                 .innerJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
-                .innerJoin(productCategoryInProductTable, eq(productTable.id, productCategoryInProductTable.productId))
-                .where(inArray(productCategoryInProductTable.productCategoryId, allCategoryIds));
+                .where(inArray(productTable.id, validProductIds)) : [];
 
             // 6. Gather keys for filtering stock data
             const productIds = new Set<string>();
@@ -910,7 +990,7 @@ export class SaleService {
     }
 
     static async createCashSending(
-        data: { maintainsId: string; cashAmount: number; cashOf: string; note?: string },
+        data: { maintainsId: string; cashAmount: number; cashOf: string; note?: string; cashSendingBy?: string },
         userId: string
     ) {
         const sendingTime = getCurrentDate();
@@ -925,6 +1005,7 @@ export class SaleService {
                 sendingTime,
                 cashOf: cashOfDate,
                 note: data.note ?? "",
+                cashSendingBy: data.cashSendingBy ?? "By Bank"
             })
             .returning();
 
@@ -966,6 +1047,7 @@ export class SaleService {
                 cashAmount: cashSendingTable.cashAmount,
                 sendingTime: cashSendingTable.sendingTime,
                 cashOf: cashSendingTable.cashOf,
+                cashSendingBy: cashSendingTable.cashSendingBy,
                 user: {
                     id: userTable.id,
                     username: userTable.username,
@@ -1029,6 +1111,7 @@ export class SaleService {
                 cashAmount: cashSendingTable.cashAmount,
                 sendingTime: cashSendingTable.sendingTime,
                 cashOf: cashSendingTable.cashOf,
+                cashSendingBy: cashSendingTable.cashSendingBy,
                 user: {
                     id: userTable.id,
                     username: userTable.username,
@@ -1061,12 +1144,13 @@ export class SaleService {
 
     static async updateCashSending(
         id: number,
-        data: { maintainsId?: string; cashAmount?: number; cashOf?: string; note?: string }
+        data: { maintainsId?: string; cashAmount?: number; cashOf?: string; note?: string; cashSendingBy?: string }
     ) {
         const updatePayload: any = {};
         if (data.maintainsId) updatePayload.maintainsId = data.maintainsId;
         if (typeof data.cashAmount === 'number') updatePayload.cashAmount = data.cashAmount;
         if (typeof data.note === 'string') updatePayload.note = data.note;
+        if (typeof data.cashSendingBy === 'string') updatePayload.cashSendingBy = data.cashSendingBy;
         if (typeof data.cashOf === 'string') {
             const cashOfDate = new Date(data.cashOf);
             updatePayload.cashOf = cashOfDate;
