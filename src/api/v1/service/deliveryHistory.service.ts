@@ -518,7 +518,8 @@ export class DeliveryHistoryService {
                     .returning();
 
                 // If status is being updated to 'Order-Completed', prepare stock data to add
-                if (updateData.status === 'Order-Completed') {
+                // Only add stock if the status is CHANGING to 'Order-Completed'
+                if (updateData.status === 'Order-Completed' && existingDeliveryHistory[0].status !== 'Order-Completed') {
                     const stockData: NewStock = {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
@@ -540,7 +541,8 @@ export class DeliveryHistoryService {
                 }
 
                 // If status is being updated to 'Return-Completed', prepare stock data to reduce
-                if (updateData.status === 'Return-Completed') {
+                // Only reduce stock if the status is CHANGING to 'Return-Completed'
+                if (updateData.status === 'Return-Completed' && existingDeliveryHistory[0].status !== 'Return-Completed') {
                     const stockReduction = {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
@@ -572,23 +574,52 @@ export class DeliveryHistoryService {
 
                     // Update latest batch for each product-maintains combination
                     for (const [key, stocks] of Object.entries(stockGroups)) {
+                        const productId = stocks[0].productId;
+                        const maintainsId = stocks[0].maintainsId;
+
                         // Resolve product's main unit and select matching stock as main unit reference
                         const [productRow] = await tx
                             .select({ mainUnitId: productTable.mainUnitId })
                             .from(productTable)
-                            .where(eq(productTable.id, stocks[0].productId));
+                            .where(eq(productTable.id, productId));
                         const mainUnitId = productRow?.mainUnitId;
-                        const mainStock = mainUnitId ? stocks.find(s => s.unitId === mainUnitId) : undefined;
-                        if (!mainStock) {
-                            console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: main unit stock not found", {
+
+                        if (!mainUnitId) {
+                            console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: main unit not found", {
                                 key,
-                                productId: stocks[0].productId,
-                                maintainsId: stocks[0].maintainsId,
-                                mainUnitId
+                                productId,
+                                maintainsId
                             });
                             tx.rollback();
-                            throw new Error(`Main unit stock not found for product ${stocks[0].productId} in maintains ${stocks[0].maintainsId}. Expected main unit: ${mainUnitId}. Cannot complete bulk order processing.`);
+                            throw new Error(`Main unit not found for product ${productId}. Cannot complete bulk order processing.`);
                         }
+
+                        // Get unit conversions to calculate total quantity in main unit
+                        const unitConversions = await tx.select()
+                            .from(unitConversionTable)
+                            .where(eq(unitConversionTable.productId, productId));
+                        
+                        const mainUnitConversion = unitConversions.find(uc => uc.unitId === mainUnitId);
+                        if (!mainUnitConversion) {
+                            tx.rollback();
+                            throw new Error(`Main unit conversion not found for product ${productId}`);
+                        }
+
+                        let totalMainUnitQuantity = 0;
+                        for (const stock of stocks) {
+                            const conversion = unitConversions.find(uc => uc.unitId === stock.unitId);
+                            if (!conversion) {
+                                tx.rollback();
+                                throw new Error(`Unit conversion not found for unit ${stock.unitId}`);
+                            }
+                            // Calculate quantity in main unit
+                            const quantityInMain = stock.quantity * (conversion.conversionFactor / mainUnitConversion.conversionFactor);
+                            totalMainUnitQuantity += quantityInMain;
+                        }
+
+                        // Round to 3 decimals to avoid floating point errors
+                        totalMainUnitQuantity = Number(totalMainUnitQuantity.toFixed(3));
+
                         // Collect unit prices: prefer client-provided latestUnitPriceData for this key
                         const clientUnitPrices = clientUnitPricesByKey[key];
                         const unitPrices = Array.isArray(clientUnitPrices) && clientUnitPrices.length > 0
@@ -600,10 +631,10 @@ export class DeliveryHistoryService {
 
                         unitPricesByKey[key] = unitPrices;
                         await StockBatchService.updateLatestBatchByProductAndMaintains(
-                            mainStock.productId,
-                            mainStock.maintainsId,
+                            productId,
+                            maintainsId,
                             {
-                                mainUnitQuantity: mainStock.quantity,
+                                mainUnitQuantity: totalMainUnitQuantity,
                                 unitPrices: unitPrices,
                                 productionDate: getCurrentDate()
                             }
