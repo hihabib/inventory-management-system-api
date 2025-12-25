@@ -9,6 +9,8 @@ import { saleTable } from "../drizzle/schema/sale";
 import { customerTable } from "../drizzle/schema/customer";
 import { getCurrentDate } from "../utils/timezone";
 import { maintainsTable } from "../drizzle/schema/maintains";
+import { unitTable } from "../drizzle/schema/unit";
+import { userTable } from "../drizzle/schema/user";
 
 interface DashboardFilters {
     start: string;
@@ -30,13 +32,33 @@ interface TopSellingProduct {
     revenue: number;
 }
 
+interface UnitInfo {
+    id: string;
+    name: string;
+    description: string;
+}
+
+interface UserInfo {
+    id: string;
+    fullName: string;
+    email: string;
+}
+
+interface AddedProduct {
+    name: string;
+    sku: string;
+    mainUnit: UnitInfo | null;
+    createdAt: string;
+    createdBy: UserInfo | null;
+}
+
 interface DashboardData {
     totalTransactions: number;
     totalSales: number;
     totalProducts: number;
-    totalSalePayment: number;
     saleDataGraphReport: SaleGraphPoint[];
     topSellingProducts: TopSellingProduct[];
+    addedProducts: AddedProduct[];
 }
 
 export class DashboardService {
@@ -72,16 +94,14 @@ export class DashboardService {
             ));
 
         const uniquePaymentIds = Array.from(new Set(paymentsFilteredRows.map(r => r.paymentId)));
-        const totalPaymentAmount = paymentsFilteredRows
-            .reduce((acc, r) => acc + Number(r.totalAmount || 0), 0);
-
+        
         // transactionCount = distinct payment IDs count
         const transactionCountValue = uniquePaymentIds.length;
 
         // saleCount with date, maintains and category filters
-        const [saleCountRow] = await db
+        const [saleTotalRow] = await db
             .select({
-                count: sql<number>`COUNT(*)`
+                totalSales: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
             })
             .from(saleTable)
             .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
@@ -106,14 +126,55 @@ export class DashboardService {
 
         const topSellingProducts = await this.getTopSellingProducts(startDate, endDate, maintainsIds, categoryIds);
 
+        const addedProducts = await this.getAddedProducts(startDate, endDate);
+
         return {
             totalTransactions: Number(transactionCountValue || 0),
-            totalSales: Number(saleCountRow?.count ?? 0),
+            totalSales: Number(saleTotalRow?.totalSales ?? 0),
             totalProducts: Number(productCountRow?.count ?? 0),
-            totalSalePayment: Number(totalPaymentAmount || 0),
             saleDataGraphReport,
-            topSellingProducts
+            topSellingProducts,
+            addedProducts
         };
+    }
+
+    private static async getAddedProducts(startDate: Date, endDate: Date): Promise<AddedProduct[]> {
+        const products = await db
+            .select({
+                name: productTable.name,
+                sku: productTable.sku,
+                createdAt: productTable.createdAt,
+                userFullName: userTable.fullName,
+                userEmail: userTable.email,
+                userId: userTable.id,
+                unitId: unitTable.id,
+                unitName: unitTable.name,
+                unitDescription: unitTable.description
+            })
+            .from(productTable)
+            .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
+            .leftJoin(userTable, eq(productTable.createdBy, userTable.id))
+            .where(and(
+                gte(productTable.createdAt, startDate),
+                lte(productTable.createdAt, endDate)
+            ))
+            .orderBy(desc(productTable.createdAt));
+
+        return products.map(p => ({
+            name: p.name,
+            sku: p.sku || "",
+            createdAt: p.createdAt.toISOString(),
+            mainUnit: p.unitId ? {
+                id: p.unitId,
+                name: p.unitName,
+                description: p.unitDescription || ""
+            } : null,
+            createdBy: p.userId ? {
+                id: p.userId,
+                fullName: p.userFullName,
+                email: p.userEmail
+            } : null
+        }));
     }
 
     private static async getSaleDataGraphReport(

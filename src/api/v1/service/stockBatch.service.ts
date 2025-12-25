@@ -900,8 +900,8 @@ export class StockBatchService {
                     if (!unitExists) {
                         throw new Error(`Unit ID ${unitPrice.unitId} not found for product ${existingStock.productId}`);
                     }
-                    if (unitPrice.pricePerQuantity <= 0) {
-                        throw new Error(`Price for unit ${unitPrice.unitId} must be positive`);
+                    if (unitPrice.pricePerQuantity < 0) {
+                        throw new Error(`Price for unit ${unitPrice.unitId} cannot be negative`);
                     }
                 }
 
@@ -986,8 +986,8 @@ export class StockBatchService {
                     if (!unitExists) {
                         throw new Error(`Unit ID ${unitPrice.unitId} not found for product ${batch.productId}`);
                     }
-                    if (unitPrice.pricePerQuantity <= 0) {
-                        throw new Error(`Price for unit ${unitPrice.unitId} must be positive`);
+                    if (unitPrice.pricePerQuantity < 0) {
+                        throw new Error(`Price for unit ${unitPrice.unitId} cannot be negative`);
                     }
                 }
 
@@ -1134,8 +1134,8 @@ export class StockBatchService {
                     if (!unitExists) {
                         throw new Error(`Unit ID ${unitPrice.unitId} not found for product ${productId}`);
                     }
-                    if (unitPrice.pricePerQuantity <= 0) {
-                        throw new Error(`Price for unit ${unitPrice.unitId} must be positive`);
+                    if (unitPrice.pricePerQuantity < 0) {
+                        throw new Error(`Price for unit ${unitPrice.unitId} cannot be negative`);
                     }
                 }
 

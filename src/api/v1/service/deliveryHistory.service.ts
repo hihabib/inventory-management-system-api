@@ -489,10 +489,10 @@ export class DeliveryHistoryService {
                 // Apply decimal precision formatting
                 const formattedUpdateData = {
                     ...updateData,
-                    ...(updateData.pricePerQuantity && { pricePerQuantity: parseFloat(updateData.pricePerQuantity.toFixed(2)) }),
-                    ...(updateData.sentQuantity && { sentQuantity: parseFloat(updateData.sentQuantity.toFixed(3)) }),
-                    ...(updateData.receivedQuantity && { receivedQuantity: parseFloat(updateData.receivedQuantity.toFixed(3)) }),
-                    ...(updateData.orderedQuantity && { orderedQuantity: parseFloat(updateData.orderedQuantity.toFixed(3)) }),
+                    ...(updateData.pricePerQuantity !== undefined && { pricePerQuantity: parseFloat(updateData.pricePerQuantity.toFixed(2)) }),
+                    ...(updateData.sentQuantity !== undefined && { sentQuantity: parseFloat(updateData.sentQuantity.toFixed(3)) }),
+                    ...(updateData.receivedQuantity !== undefined && { receivedQuantity: parseFloat(updateData.receivedQuantity.toFixed(3)) }),
+                    ...(updateData.orderedQuantity !== undefined && { orderedQuantity: parseFloat(updateData.orderedQuantity.toFixed(3)) }),
                     ...(updateData.latestUnitPriceData && { latestUnitPriceData: updateData.latestUnitPriceData }),
                     updatedAt: getCurrentDate()
                 };

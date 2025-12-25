@@ -27,8 +27,8 @@ export class StockBatchController {
             if (!unitPrice.unitId || typeof unitPrice.pricePerQuantity !== 'number') {
                 return sendResponse(res, 400, 'Each unitPrice must have unitId (string) and pricePerQuantity (number)');
             }
-            if (unitPrice.pricePerQuantity <= 0) {
-                return sendResponse(res, 400, 'All unit prices must be positive numbers');
+            if (unitPrice.pricePerQuantity < 0) {
+                return sendResponse(res, 400, 'All unit prices must be non-negative numbers');
             }
         }
 
@@ -222,8 +222,8 @@ export class StockBatchController {
                 if (!unitPrice.unitId || typeof unitPrice.unitId !== 'string') {
                     return sendResponse(res, 400, "Each unit price must have a valid unitId", null);
                 }
-                if (typeof unitPrice.pricePerQuantity !== 'number' || unitPrice.pricePerQuantity <= 0) {
-                    return sendResponse(res, 400, "Each unit price must have a positive pricePerQuantity", null);
+                if (typeof unitPrice.pricePerQuantity !== 'number' || unitPrice.pricePerQuantity < 0) {
+                    return sendResponse(res, 400, "Each unit price must have a non-negative pricePerQuantity", null);
                 }
             }
         }

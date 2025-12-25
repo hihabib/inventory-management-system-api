@@ -80,10 +80,10 @@ export class SaleService {
                     const discountType = product.discountType || "Fixed";
 
                     if (discountType === "Fixed") {
-                        saleAmount = (product.quantity * product.price_per_quantity) - discount;
+                        saleAmount = Math.max(0, (product.quantity * product.price_per_quantity) - discount);
                     } else { // Percentage
-                        saleAmount = (product.quantity * product.price_per_quantity) -
-                            (product.quantity * product.price_per_quantity * discount / 100);
+                        saleAmount = Math.max(0, (product.quantity * product.price_per_quantity) -
+                            (product.quantity * product.price_per_quantity * discount / 100));
                     }
 
                     // Apply decimal precision formatting

@@ -52,8 +52,8 @@ export class SaleController {
                 return sendResponse(res, 400, `Product ${i + 1}: quantity must be a positive number`);
             }
 
-            if (typeof product.price_per_quantity !== 'number' || product.price_per_quantity <= 0) {
-                return sendResponse(res, 400, `Product ${i + 1}: price_per_quantity must be a positive number`);
+            if (typeof product.price_per_quantity !== 'number' || product.price_per_quantity < 0) {
+                return sendResponse(res, 400, `Product ${i + 1}: price_per_quantity must be a non-negative number`);
             }
 
             // Validate discount fields
@@ -106,7 +106,7 @@ export class SaleController {
 
         // Validate total amounts
         if (typeof saleData.totalPriceWithDiscount !== 'number' || saleData.totalPriceWithDiscount < 0) {
-            return sendResponse(res, 400, "totalPriceWithDiscount must be a positive number");
+            return sendResponse(res, 400, "totalPriceWithDiscount must be a non-negative number");
         }
 
         try {
