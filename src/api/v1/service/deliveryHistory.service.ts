@@ -258,11 +258,26 @@ export class DeliveryHistoryService {
                         // Compute main unit quantity from provided unit quantity
                         const mainUnitQuantity = Number((reference.quantity * (mainConv.conversionFactor / refConv.conversionFactor)).toFixed(3));
 
-                        // Remove all existing stocks and batches for this product-maintains
-                        await tx.delete(stockTable)
-                            .where(and(eq(stockTable.productId, productId), eq(stockTable.maintainsId, maintainsId)));
-                        await tx.delete(stockBatchTable)
-                            .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)));
+                        const oldBatches = await tx
+                            .select({ id: stockBatchTable.id })
+                            .from(stockBatchTable)
+                            .where(and(
+                                eq(stockBatchTable.productId, productId),
+                                eq(stockBatchTable.maintainsId, maintainsId),
+                                eq(stockBatchTable.deleted, false)
+                            ));
+                        const oldBatchIds = oldBatches.map(b => b.id);
+
+                        if (oldBatchIds.length > 0) {
+                            await tx
+                                .update(stockTable)
+                                .set({ quantity: 0, updatedAt: getCurrentDate() })
+                                .where(and(
+                                    eq(stockTable.productId, productId),
+                                    eq(stockTable.maintainsId, maintainsId),
+                                    inArray(stockTable.stockBatchId, oldBatchIds)
+                                ));
+                        }
 
                         // Use client-provided latestUnitPriceData for unit prices; validate completeness
                         const unitPrices = (reference.latestUnitPriceData ?? []).slice();
@@ -282,11 +297,25 @@ export class DeliveryHistoryService {
                             unitPrices
                         }, tx);
 
+                        if (oldBatchIds.length > 0 && Number(mainUnitQuantity) > 0) {
+                            await tx
+                                .update(stockBatchTable)
+                                .set({ deleted: true, updatedAt: getCurrentDate() })
+                                .where(inArray(stockBatchTable.id, oldBatchIds));
+                        }
+
                         // Update latestUnitPriceData for all Reset-Completed records in this group
                         for (const item of items) {
+                            const createdId = createdDeliveryHistories.find(d =>
+                                d.productId === item.productId &&
+                                d.maintainsId === item.maintainsId &&
+                                d.status === 'Reset-Completed' &&
+                                d.unitId === item.unitId
+                            )?.id;
+                            if (!createdId) continue;
                             await tx.update(deliveryHistoryTable)
                                 .set({ latestUnitPriceData: unitPrices })
-                                .where(eq(deliveryHistoryTable.id, (createdDeliveryHistories.find(d => d.productId === item.productId && d.maintainsId === item.maintainsId && d.status === 'Reset-Completed' && d.unitId === item.unitId)?.id) ?? item.productId));
+                                .where(eq(deliveryHistoryTable.id, createdId));
                         }
                     }
                 } catch (error) {

@@ -325,7 +325,7 @@ export class ProductService {
             })
             .from(stockTable)
             .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
-            .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+            .innerJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
             .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
             .where(eq(stockTable.productId, id));
 
@@ -588,7 +588,7 @@ export class ProductService {
                 stockBatchCreatedAt: stockBatchTable.createdAt
             })
             .from(stockTable)
-            .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+            .innerJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
             .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
             .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
             .where(inArray(stockTable.productId, productIds))

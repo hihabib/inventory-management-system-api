@@ -10,6 +10,7 @@ import { unitTable } from "../drizzle/schema/unit";
 import { unitConversionTable } from "../drizzle/schema/unitConversion";
 import { deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { stockTable } from "../drizzle/schema/stock";
+import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { dailyStockRecordTable } from "../drizzle/schema/dailyStockRecord";
 import { cashSendingTable } from "../drizzle/schema/cashSending";
 import { userTable } from "../drizzle/schema/user";
@@ -733,6 +734,7 @@ export class SaleService {
                     avgPricePerQuantity: sql<number>`AVG(${stockTable.pricePerQuantity})`
                 })
                 .from(stockTable)
+                .innerJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
                 .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
                 .where(
                     and(

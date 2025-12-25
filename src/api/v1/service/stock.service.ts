@@ -269,7 +269,7 @@ export class StockService {
                 {
                     table: stockBatchTable,
                     alias: 'stockBatch',
-                    condition: eq(stockTable.stockBatchId, stockBatchTable.id),
+                    condition: and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)),
                     type: "left"
                 }
             ],
@@ -351,7 +351,7 @@ export class StockService {
         .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
         .innerJoin(productTable, eq(stockTable.productId, productTable.id))
         .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
-        .leftJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+        .leftJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
         .where(eq(stockTable.id, stockId));
 
         return stock;
@@ -378,8 +378,9 @@ export class StockService {
             }
         })
         .from(stockTable)
+        .innerJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
         .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
-        .where(eq(stockTable.stockBatchId, batchId));
+        .where(and(eq(stockTable.stockBatchId, batchId), eq(stockBatchTable.id, batchId)));
     }
 
     /**

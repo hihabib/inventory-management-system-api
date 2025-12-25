@@ -1,4 +1,4 @@
-import { pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { productTable } from './product';
 import { maintainsTable } from './maintains';
 
@@ -12,6 +12,7 @@ export const stockBatchTable = pgTable('stock_batch', {
     batchNumber: varchar('batch_number').notNull(),
     productionDate: timestamp('production_date', {withTimezone: true}).defaultNow().notNull(),
     createdBy: uuid('created_by').references(() => userTable.id),
+    deleted: boolean('deleted').default(false).notNull(),
 });
 
 export type StockBatchTable = typeof stockBatchTable.$inferSelect;

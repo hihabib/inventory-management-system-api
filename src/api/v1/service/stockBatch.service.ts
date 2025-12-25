@@ -167,6 +167,14 @@ export class StockBatchService {
 
             console.log('✅ [StockBatchService] Stock entry found:', stockEntry);
 
+            const [batch] = await tx
+                .select({ id: stockBatchTable.id, deleted: stockBatchTable.deleted })
+                .from(stockBatchTable)
+                .where(eq(stockBatchTable.id, stockEntry.stockBatchId));
+            if (!batch || batch.deleted) {
+                throw new Error(`Batch is not available for sale: ${stockEntry.stockBatchId}`);
+            }
+
             // Get product information to find main unit
             const [product] = await tx.select().from(productTable).where(eq(productTable.id, stockEntry.productId));
 
@@ -238,7 +246,10 @@ export class StockBatchService {
 
         return await db.transaction(async (tx) => {
             // Get batch information to find product
-            const [batch] = await tx.select().from(stockBatchTable).where(eq(stockBatchTable.id, batchId));
+            const [batch] = await tx
+                .select()
+                .from(stockBatchTable)
+                .where(and(eq(stockBatchTable.id, batchId), eq(stockBatchTable.deleted, false)));
 
             if (!batch) {
                 throw new Error(`Batch not found with ID: ${batchId}`);
@@ -420,9 +431,66 @@ export class StockBatchService {
             });
         }
 
+        if (mainUnitReductionQuantity > 0) {
+            await this.softDeleteBatchIfEligible(tx, batchId, productId);
+        }
+
         console.log('🎉 [StockBatchService] All units updated successfully. Total units:', results.length);
 
         return results;
+    }
+
+    private static async softDeleteBatchIfEligible(tx: any, batchId: string, productId: string) {
+        const [batch] = await tx
+            .select({
+                id: stockBatchTable.id,
+                maintainsId: stockBatchTable.maintainsId,
+                deleted: stockBatchTable.deleted
+            })
+            .from(stockBatchTable)
+            .where(eq(stockBatchTable.id, batchId));
+
+        if (!batch || batch.deleted) return;
+
+        const [product] = await tx
+            .select({ mainUnitId: productTable.mainUnitId })
+            .from(productTable)
+            .where(eq(productTable.id, productId));
+        const mainUnitId = product?.mainUnitId;
+        if (!mainUnitId) return;
+
+        const [currentQtyRow] = await tx
+            .select({ total: sql<number>`COALESCE(SUM(${stockTable.quantity}), 0)` })
+            .from(stockTable)
+            .where(and(
+                eq(stockTable.stockBatchId, batchId),
+                eq(stockTable.unitId, mainUnitId)
+            ));
+        const currentQty = Number(currentQtyRow?.total ?? 0);
+        if (currentQty > 0) return;
+
+        const otherActive = await tx
+            .select({ id: stockBatchTable.id })
+            .from(stockBatchTable)
+            .innerJoin(stockTable, and(
+                eq(stockTable.stockBatchId, stockBatchTable.id),
+                eq(stockTable.unitId, mainUnitId)
+            ))
+            .where(and(
+                eq(stockBatchTable.productId, productId),
+                eq(stockBatchTable.maintainsId, batch.maintainsId),
+                eq(stockBatchTable.deleted, false),
+                sql`${stockBatchTable.id} <> ${batchId}`,
+                sql`${stockTable.quantity} > 0`
+            ))
+            .limit(1);
+
+        if (otherActive.length === 0) return;
+
+        await tx
+            .update(stockBatchTable)
+            .set({ deleted: true, updatedAt: getCurrentDate() })
+            .where(eq(stockBatchTable.id, batchId));
     }
 
     /**
@@ -434,7 +502,7 @@ export class StockBatchService {
             batch: stockBatchTable
         })
             .from(stockTable)
-            .leftJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+            .leftJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
             .where(eq(stockTable.id, stockId));
 
         return stock;
@@ -470,10 +538,11 @@ export class StockBatchService {
             }
         })
             .from(stockTable)
+            .innerJoin(stockBatchTable, and(eq(stockTable.stockBatchId, stockBatchTable.id), eq(stockBatchTable.deleted, false)))
             .innerJoin(productTable, eq(stockTable.productId, productTable.id))
             .innerJoin(maintainsTable, eq(stockTable.maintainsId, maintainsTable.id))
             .innerJoin(unitTable, eq(stockTable.unitId, unitTable.id))
-            .where(eq(stockTable.stockBatchId, batchId))
+            .where(and(eq(stockTable.stockBatchId, batchId), eq(stockBatchTable.id, batchId)))
             .orderBy(asc(stockTable.createdAt));
     }
 
@@ -504,7 +573,7 @@ export class StockBatchService {
             .from(stockBatchTable)
             .innerJoin(productTable, eq(stockBatchTable.productId, productTable.id))
             .innerJoin(maintainsTable, eq(stockBatchTable.maintainsId, maintainsTable.id))
-            .where(eq(stockBatchTable.id, batchId));
+            .where(and(eq(stockBatchTable.id, batchId), eq(stockBatchTable.deleted, false)));
 
         if (!batch) {
             throw new Error(`Batch not found with ID: ${batchId}`);
@@ -525,7 +594,8 @@ export class StockBatchService {
         let whereConditions = [
             eq(stockTable.productId, productId),
             eq(stockTable.maintainsId, maintainsId),
-            sql`${stockTable.quantity} > 0`
+            sql`${stockTable.quantity} > 0`,
+            eq(stockBatchTable.deleted, false)
         ];
 
         if (unitId) {
@@ -537,7 +607,7 @@ export class StockBatchService {
             batch: stockBatchTable
         })
             .from(stockTable)
-            .leftJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+            .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
             .where(and(...whereConditions))
             .orderBy(asc(stockBatchTable.productionDate), asc(stockTable.createdAt));
     }
@@ -552,6 +622,7 @@ export class StockBatchService {
         return await filterWithPaginate(stockBatchTable, {
             pagination,
             filter,
+            where: eq(stockBatchTable.deleted, false),
             joins: [
                 {
                     table: productTable,
@@ -601,7 +672,7 @@ export class StockBatchService {
             .from(stockBatchTable)
             .leftJoin(productTable, eq(stockBatchTable.productId, productTable.id))
             .leftJoin(maintainsTable, eq(stockBatchTable.maintainsId, maintainsTable.id))
-            .where(eq(stockBatchTable.id, batchId));
+            .where(and(eq(stockBatchTable.id, batchId), eq(stockBatchTable.deleted, false)));
 
         return batch;
     }
@@ -763,6 +834,16 @@ export class StockBatchService {
 
             console.log('✅ [StockBatchService] Stock found:', existingStock);
 
+            if (existingStock.stockBatchId) {
+                const [existingBatch] = await tx
+                    .select({ id: stockBatchTable.id, deleted: stockBatchTable.deleted })
+                    .from(stockBatchTable)
+                    .where(eq(stockBatchTable.id, existingStock.stockBatchId));
+                if (existingBatch?.deleted) {
+                    throw new Error(`Stock batch is deleted: ${existingStock.stockBatchId}`);
+                }
+            }
+
             // Get product information to find main unit
             const [product] = await tx.select().from(productTable).where(eq(productTable.id, existingStock.productId));
 
@@ -856,7 +937,7 @@ export class StockBatchService {
         return await db.transaction(async (tx) => {
             // Verify batch exists
             const [batch] = await tx.select().from(stockBatchTable)
-                .where(eq(stockBatchTable.id, batchId));
+                .where(and(eq(stockBatchTable.id, batchId), eq(stockBatchTable.deleted, false)));
 
             if (!batch) {
                 throw new Error(`Stock batch with ID ${batchId} not found`);
@@ -950,7 +1031,11 @@ export class StockBatchService {
         return await db.transaction(async (tx) => {
             // Find latest batch for product-maintains by createdAt desc
             const latestBatches = await tx.select().from(stockBatchTable)
-                .where(and(eq(stockBatchTable.productId, productId), eq(stockBatchTable.maintainsId, maintainsId)))
+                .where(and(
+                    eq(stockBatchTable.productId, productId),
+                    eq(stockBatchTable.maintainsId, maintainsId),
+                    eq(stockBatchTable.deleted, false)
+                ))
                 .orderBy(desc(stockBatchTable.createdAt));
 
             const latestBatch = latestBatches[0];
@@ -1225,7 +1310,10 @@ export class StockBatchService {
                 console.log('🔄 [StockBatchService] Processing sale item:', { stockBatchId, unitId, quantity });
 
                 // Get batch information to find product
-                const [batch] = await tx.select().from(stockBatchTable).where(eq(stockBatchTable.id, stockBatchId));
+                const [batch] = await tx
+                    .select()
+                    .from(stockBatchTable)
+                    .where(and(eq(stockBatchTable.id, stockBatchId), eq(stockBatchTable.deleted, false)));
 
                 if (!batch) {
                     throw new Error(`Batch not found with ID: ${stockBatchId}`);
@@ -1404,6 +1492,11 @@ export class StockBatchService {
                     -batchData.totalMainUnitReduction
                 );
 
+                await tx
+                    .update(stockBatchTable)
+                    .set({ deleted: false, updatedAt: getCurrentDate() })
+                    .where(eq(stockBatchTable.id, stockBatchId));
+
                 for (const saleItemData of batchData.saleItems) {
                     results.push({
                         stockBatchId,
@@ -1433,141 +1526,65 @@ export class StockBatchService {
         console.log('🧹 [StockBatchService] Starting cleanup for product:', productId, 'in outlet:', maintainsId);
 
         const runCleanup = async (tx: any) => {
-            // Get all stock batches for this product in this outlet
-            const stockBatches = await tx.select({
-                batchId: stockBatchTable.id,
-                batchNumber: stockBatchTable.batchNumber,
-                productionDate: stockBatchTable.productionDate
-            })
-            .from(stockBatchTable)
-            .where(and(
-                eq(stockBatchTable.productId, productId),
-                eq(stockBatchTable.maintainsId, maintainsId)
-            ));
+            const [product] = await tx
+                .select({ mainUnitId: productTable.mainUnitId })
+                .from(productTable)
+                .where(eq(productTable.id, productId));
 
-            if (stockBatches.length <= 1) {
-                console.log('📦 [StockBatchService] Only one or no batches found, skipping cleanup');
-                return { cleanedBatches: [], message: 'No cleanup needed - insufficient batches' };
+            if (!product?.mainUnitId) {
+                return { cleanedBatches: [], message: "No cleanup needed - product main unit not found" };
             }
 
-            console.log('📦 [StockBatchService] Found', stockBatches.length, 'batches to analyze');
-
-            // Check stock quantities for each batch
-            const batchStockInfo = [];
-            
-            for (const batch of stockBatches) {
-                const stocks = await tx.select({
-                    id: stockTable.id,
-                    quantity: stockTable.quantity,
-                    unitId: stockTable.unitId
+            const batchInfo = await tx
+                .select({
+                    batchId: stockBatchTable.id,
+                    batchNumber: stockBatchTable.batchNumber,
+                    productionDate: stockBatchTable.productionDate,
+                    mainUnitQuantity: sql<number>`COALESCE(SUM(${stockTable.quantity}), 0)`
                 })
-                .from(stockTable)
+                .from(stockBatchTable)
+                .leftJoin(stockTable, and(
+                    eq(stockTable.stockBatchId, stockBatchTable.id),
+                    eq(stockTable.unitId, product.mainUnitId)
+                ))
                 .where(and(
-                    eq(stockTable.stockBatchId, batch.batchId),
-                    eq(stockTable.productId, productId),
-                    eq(stockTable.maintainsId, maintainsId)
-                ));
+                    eq(stockBatchTable.productId, productId),
+                    eq(stockBatchTable.maintainsId, maintainsId),
+                    eq(stockBatchTable.deleted, false)
+                ))
+                .groupBy(stockBatchTable.id, stockBatchTable.batchNumber, stockBatchTable.productionDate);
 
-                const totalQuantity = stocks.reduce((sum, stock) => sum + stock.quantity, 0);
-                const hasStock = totalQuantity > 0;
-
-                batchStockInfo.push({
-                    batchId: batch.batchId,
-                    batchNumber: batch.batchNumber,
-                    totalQuantity,
-                    hasStock,
-                    stockCount: stocks.length
-                });
-
-                console.log('📊 [StockBatchService] Batch', batch.batchNumber, '- Total quantity:', totalQuantity, 'Has stock:', hasStock);
+            if (batchInfo.length <= 1) {
+                return { cleanedBatches: [], message: "No cleanup needed - insufficient batches" };
             }
 
-            // Find batches with stock > 0 and batches with stock = 0
-            const batchesWithStock = batchStockInfo.filter(b => b.hasStock);
-            const emptyBatches = batchStockInfo.filter(b => !b.hasStock);
+            const batchesWithStock = batchInfo.filter(b => Number(b.mainUnitQuantity) > 0);
+            const emptyBatches = batchInfo.filter(b => Number(b.mainUnitQuantity) <= 0);
 
-            console.log('📈 [StockBatchService] Batches with stock:', batchesWithStock.length);
-            console.log('📉 [StockBatchService] Empty batches:', emptyBatches.length);
-
-            // If no empty batches, nothing to do
             if (emptyBatches.length === 0) {
-                console.log('✅ [StockBatchService] No empty batches found, no cleanup needed');
-                return { 
-                    cleanedBatches: [], 
-                    message: 'No cleanup needed - no empty batches found' 
-                };
+                return { cleanedBatches: [], message: "No cleanup needed - no empty batches found" };
             }
-
-            // Determine which empty batches to delete according to policy:
-            // - If at least one batch has stock, delete all empty batches.
-            // - If all batches are empty, keep exactly one empty batch (latest created) and delete the rest.
-            let batchesToDelete = emptyBatches;
-            let keepBatchId: string | null = null;
 
             if (batchesWithStock.length === 0) {
-                // All batches are empty: keep one empty batch (latest created) and delete the rest
-                if (emptyBatches.length > 1) {
-                    // Load createdAt for deterministic selection
-                    const emptiesWithMeta = await Promise.all(emptyBatches.map(async (b) => {
-                        const [row] = await tx
-                            .select({ id: stockBatchTable.id, createdAt: stockBatchTable.createdAt, batchNumber: stockBatchTable.batchNumber })
-                            .from(stockBatchTable)
-                            .where(eq(stockBatchTable.id, b.batchId));
-                        return { ...b, createdAt: row?.createdAt ?? new Date(0), batchNumber: row?.batchNumber ?? b.batchNumber };
-                    }));
-
-                    emptiesWithMeta.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
-                    const toKeep = emptiesWithMeta[0];
-                    keepBatchId = toKeep.batchId;
-                    batchesToDelete = emptiesWithMeta.slice(1);
-                    console.log('📦 [StockBatchService] Keeping one zero-quantity batch (latest):', toKeep.batchNumber, toKeep.batchId);
-                } else {
-                    // Only one empty batch: keep it, delete none
-                    batchesToDelete = [];
-                }
-            } else {
-                console.log('📦 [StockBatchService] Batches with stock exist; will remove all zero-quantity batches');
+                return { cleanedBatches: [], message: "No cleanup needed - no other active batch exists" };
             }
 
-            // Remove selected empty batches (both stock entries and batch records)
             const cleanedBatches = [];
-
-            for (const emptyBatch of batchesToDelete) {
-                console.log('🗑️ [StockBatchService] Removing empty batch:', emptyBatch.batchNumber);
-
-                // First, delete all stock entries for this batch
-                const deletedStocks = await tx.delete(stockTable)
-                    .where(and(
-                        eq(stockTable.stockBatchId, emptyBatch.batchId),
-                        eq(stockTable.productId, productId),
-                        eq(stockTable.maintainsId, maintainsId)
-                    ))
-                    .returning();
-
-                console.log('🗑️ [StockBatchService] Deleted', deletedStocks.length, 'stock entries for batch:', emptyBatch.batchNumber);
-
-                // Then, delete the batch record itself
-                const [deletedBatch] = await tx.delete(stockBatchTable)
-                    .where(eq(stockBatchTable.id, emptyBatch.batchId))
-                    .returning();
-
+            for (const b of emptyBatches) {
+                await tx
+                    .update(stockBatchTable)
+                    .set({ deleted: true, updatedAt: getCurrentDate() })
+                    .where(eq(stockBatchTable.id, b.batchId));
                 cleanedBatches.push({
-                    batchId: emptyBatch.batchId,
-                    batchNumber: emptyBatch.batchNumber,
-                    deletedStockEntries: deletedStocks.length,
-                    deletedBatch: deletedBatch
+                    batchId: b.batchId,
+                    batchNumber: b.batchNumber
                 });
-
-                console.log('✅ [StockBatchService] Successfully removed batch:', emptyBatch.batchNumber);
             }
-
-            console.log('🎉 [StockBatchService] Cleanup completed. Removed', cleanedBatches.length, 'empty batches', keepBatchId ? `; kept ${keepBatchId}` : '');
 
             return {
                 cleanedBatches,
-                message: `Successfully cleaned up ${cleanedBatches.length} empty batches`,
-                remainingBatchesWithStock: batchesWithStock.length,
-                keptZeroBatchId: keepBatchId
+                message: `Soft-deleted ${cleanedBatches.length} empty batches`,
+                remainingBatchesWithStock: batchesWithStock.length
             };
         };
 
