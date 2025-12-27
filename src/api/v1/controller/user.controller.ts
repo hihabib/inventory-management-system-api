@@ -47,15 +47,52 @@ export class UserController {
 
   static getUsers = requestHandler(async(req:AuthRequest,res:Response)=>{
     const {pagination, filter} = getFilterAndPaginationFromRequest(req);
-    const users = await UserService.getUsers(pagination, filter);
+    const search = req.query.s as string;
+    const users = await UserService.getUsers(pagination, filter, search);
     sendResponse(res, 200, 'Users retrieved successfully', users);
   })
 
   // Get current user profile
   static getProfile = requestHandler(async (req: AuthRequest, res: Response) => {
-    // req.user is set by authenticate middleware
-    const user = req.user;
-
+    const userId = req.user?.id;
+    if (!userId) {
+      return sendResponse(res, 401, 'User not authenticated');
+    }
+    const user = await UserService.getUserByIdWithRoleMaintains(userId);
     sendResponse(res, 200, 'User profile retrieved successfully', user);
+  });
+
+  static updateUser = requestHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return sendResponse(res, 400, 'User id is required');
+    }
+    const updates = req.body as Partial<NewUser>;
+    const updated = await UserService.updateUser(id, updates);
+    sendResponse(res, 200, 'User updated successfully', updated);
+  });
+
+  static getUserById = requestHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return sendResponse(res, 400, 'User id is required');
+    }
+    const user = await UserService.getUserByIdWithRoleMaintains(id);
+    if (!user) {
+      return sendResponse(res, 404, 'User not found');
+    }
+    sendResponse(res, 200, 'User retrieved successfully', user);
+  });
+
+  static deleteUser = requestHandler(async (req: AuthRequest, res: Response) => {
+    const { id } = req.params as { id: string };
+    if (!id) {
+      return sendResponse(res, 400, 'User id is required');
+    }
+    const deleted = await UserService.deleteUser(id);
+    if (!deleted) {
+      return sendResponse(res, 404, 'User not found');
+    }
+    sendResponse(res, 200, 'User deleted successfully', deleted);
   });
 }

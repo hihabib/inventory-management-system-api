@@ -12,6 +12,7 @@ export const userTable = pgTable('users', {
   maintainsId: uuid('maintains_id').references(() => maintainsTable.id),
   createdAt: timestamp('created_at', {withTimezone: true}).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', {withTimezone: true}).defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at', {withTimezone: true}),
 });
 
 export type UserTable = typeof userTable.$inferSelect;
