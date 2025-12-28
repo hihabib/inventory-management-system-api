@@ -466,12 +466,12 @@ export class SaleService {
         return Number.isFinite(total) ? total : 0;
     }
 
-    // Get total cash sending amount for a specific calendar date and maintains outlet
-    // Filters cash_sending by maintains_id and cash_of, sums cash_amount in the database
-    static async getTotalCashSending(startDate: Date, endDate: Date, maintainsId: string): Promise<number> {
-        const [result] = await db
+    // Get total cash sending amount for a specific calendar date and maintains outlet grouped by type
+    static async getCashSendingGroupedByType(startDate: Date, endDate: Date, maintainsId: string): Promise<Record<string, number>> {
+        const results = await db
             .select({
-                totalCash: sql<number>`COALESCE(SUM(${cashSendingTable.cashAmount}), 0)`
+                method: cashSendingTable.cashSendingBy,
+                amount: sql<number>`COALESCE(SUM(${cashSendingTable.cashAmount}), 0)`
             })
             .from(cashSendingTable)
             .where(
@@ -480,10 +480,16 @@ export class SaleService {
                     gte(cashSendingTable.cashOf, startDate),
                     lte(cashSendingTable.cashOf, endDate)
                 )
-            );
+            )
+            .groupBy(cashSendingTable.cashSendingBy);
 
-        const total = Number(result?.totalCash ?? 0);
-        return Number.isFinite(total) ? total : 0;
+        const sentBy: Record<string, number> = {};
+        results.forEach(row => {
+            if (row.method) {
+                sentBy[row.method] = Number(row.amount);
+            }
+        });
+        return sentBy;
     }
 
     static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
@@ -499,7 +505,7 @@ export class SaleService {
             previousCashRow,
             creditCollection,
             expense,
-            sentToBank
+            sentBy
         ] = await Promise.all([
             this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId),
             this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
@@ -512,7 +518,7 @@ export class SaleService {
                 .where(eq(maintainsTable.id, maintainsId)),
             CustomerDueService.getTotalCreditCollection(startDate, endDate, maintainsId),
             ExpenseService.getTotalExpense(startDate, endDate, maintainsId),
-            this.getTotalCashSending(startDate, endDate, maintainsId)
+            this.getCashSendingGroupedByType(startDate, endDate, maintainsId)
         ]);
 
         const payments = await paymentsPromise;
@@ -521,7 +527,9 @@ export class SaleService {
         const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
         const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
         const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
-        const totalCashAfterSend = (totalCashBeforeSend || 0) - (sentToBank || 0);
+        
+        const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
+        const totalCashAfterSend = (totalCashBeforeSend || 0) - (totalSent || 0);
 
         return {
             totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
@@ -539,7 +547,7 @@ export class SaleService {
             creditCollection: Number(creditCollection || 0),
             expense: Number(expense || 0),
             totalCashBeforeSend: Number(totalCashBeforeSend || 0),
-            sentToBank: Number(sentToBank || 0),
+            sentBy: sentBy,
             totalCashAfterSend: Number(totalCashAfterSend || 0)
         };
     }

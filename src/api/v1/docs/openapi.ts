@@ -125,8 +125,12 @@ const options: swaggerJSDoc.Options = {
             creditCollection: { type: 'number', description: 'Total collected customer due for the day' },
             expense: { type: 'number', description: 'Total expenses for the day (from expenses.date)' },
             totalCashBeforeSend: { type: 'number', description: 'cashSale + previousCash + creditCollection - expense' },
-            sentToBank: { type: 'number', description: 'Total cash sent to bank for the day' },
-            totalCashAfterSend: { type: 'number', description: 'totalCashBeforeSend - sentToBank (also saved to maintains.stockCash)' },
+            sentBy: { 
+              type: 'object', 
+              additionalProperties: { type: 'number' },
+              description: 'Map of cash sending methods to amounts' 
+            },
+            totalCashAfterSend: { type: 'number', description: 'totalCashBeforeSend - total sentBy amount (also saved to maintains.stockCash)' },
           },
         },
         // Cash Sending
