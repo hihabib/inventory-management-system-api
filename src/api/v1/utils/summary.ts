@@ -6,11 +6,11 @@ import { FilterOptions, JoinConfig } from './filterWithPaginate';
 
 export async function getSummary<T extends PgTable>(
   table: T,
-  options: { filter?: FilterOptions; joins?: JoinConfig[]; summarySelect: Record<string, any>; groupBy?: any }
+  options: { filter?: FilterOptions; joins?: JoinConfig[]; summarySelect: Record<string, any>; groupBy?: any; where?: SQL[] }
 ) {
-  const { filter = {}, joins = [], summarySelect, groupBy } = options;
+  const { filter = {}, joins = [], summarySelect, groupBy, where = [] } = options;
 
-  const whereConditions: SQL[] = [];
+  const whereConditions: SQL[] = [...where];
   const tableRefs: Record<string, PgTable> = {};
   tableRefs['main'] = table;
   for (const join of joins) {

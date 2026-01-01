@@ -171,6 +171,7 @@ export class CustomerDueService {
 
         const summaryRow = await getSummary(customerDueTable, {
             filter,
+            where: searchConditions.length > 0 ? searchConditions : undefined,
             joins: [
                 {
                     table: userTable,
