@@ -69,9 +69,19 @@ export class DashboardService {
             throw new Error("Invalid 'start' or 'end' date");
         }
 
-        const maintainsIds = Array.isArray(filters.maintainsIds) && filters.maintainsIds.length > 0
+        let maintainsIds = Array.isArray(filters.maintainsIds) && filters.maintainsIds.length > 0
             ? filters.maintainsIds
             : undefined;
+        
+        if (!maintainsIds) {
+            const outletMaintains = await db
+                .select({ id: maintainsTable.id })
+                .from(maintainsTable)
+                .where(eq(maintainsTable.type, 'Outlet'));
+            
+            maintainsIds = outletMaintains.map(m => m.id);
+        }
+
         const categoryIds = Array.isArray(filters.customerCategoryIds) && filters.customerCategoryIds.length > 0
             ? filters.customerCategoryIds
             : undefined;
