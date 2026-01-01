@@ -1,4 +1,4 @@
-import { eq, sql, inArray, asc, and, gte, lte } from "drizzle-orm";
+import { eq, sql, inArray, asc, and, gte, lte, or } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
 import { userTable } from "../drizzle/schema/user";
@@ -88,9 +88,13 @@ export class CustomerDueService {
         if (filter?.search || filter?.customerName) {
             const searchTerm = filter.search?.[0] || filter.customerName?.[0];
             if (searchTerm) {
-                // Add case-insensitive partial match condition for customer name
+                // Add case-insensitive partial match condition for customer name, email, or phone
                 searchConditions.push(
-                    sql`LOWER(${customerTable.name}) LIKE LOWER(${'%' + searchTerm + '%'})`
+                    or(
+                        sql`LOWER(${customerTable.name}) LIKE LOWER(${'%' + searchTerm + '%'})`,
+                        sql`LOWER(${customerTable.email}) LIKE LOWER(${'%' + searchTerm + '%'})`,
+                        sql`LOWER(${customerTable.phone}) LIKE LOWER(${'%' + searchTerm + '%'})`
+                    )
                 );
             }
             
