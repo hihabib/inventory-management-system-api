@@ -147,6 +147,125 @@ export class StockBatchService {
     }
 
     /**
+     * Process stock reduction by product and maintains ID (FIFO logic)
+     * Finds latest batches and reduces quantity, cascading to older batches if needed
+     */
+    static async reduceProductStock(productId: string, maintainsId: string, quantityToReduce: number, unitId: string) {
+        console.log('🚀 [StockBatchService] Starting reduceProductStock:', { productId, maintainsId, quantityToReduce, unitId });
+
+        return await db.transaction(async (tx) => {
+            // 1. Get product info for main unit
+            const [product] = await tx.select().from(productTable).where(eq(productTable.id, productId));
+            if (!product || !product.mainUnitId) {
+                throw new Error(`Product or main unit not found for product ID: ${productId}`);
+            }
+
+            // 2. Get unit conversions
+            const unitConversions = await tx.select().from(unitConversionTable)
+                .where(eq(unitConversionTable.productId, productId));
+
+            const mainUnitConversion = unitConversions.find(uc => uc.unitId === product.mainUnitId);
+            const saleUnitConversion = unitConversions.find(uc => uc.unitId === unitId);
+
+            if (!mainUnitConversion || !saleUnitConversion) {
+                throw new Error(`Unit conversion not found for product ${productId}`);
+            }
+
+            // 3. Fetch all stock batches for this product/maintains, ordered by creation (newest first)
+            // We join with stockTable to get quantity in main unit
+            // Actually simpler: get batches, then get their main unit stock
+            const batches = await tx
+                .select({
+                    id: stockBatchTable.id,
+                    createdAt: stockBatchTable.createdAt
+                })
+                .from(stockBatchTable)
+                .where(and(
+                    eq(stockBatchTable.productId, productId),
+                    eq(stockBatchTable.maintainsId, maintainsId),
+                    eq(stockBatchTable.deleted, false)
+                ))
+                .orderBy(desc(stockBatchTable.createdAt));
+
+            if (batches.length === 0) {
+                throw new Error(`No active stock batches found for product ${product.name}`);
+            }
+
+            // 4. Calculate total available quantity in sale unit to check sufficiency
+            // We need to fetch stock entries for these batches to know quantities
+            const batchIds = batches.map(b => b.id);
+            const stockEntries = await tx
+                .select()
+                .from(stockTable)
+                .where(and(
+                    inArray(stockTable.stockBatchId, batchIds),
+                    eq(stockTable.unitId, product.mainUnitId) // Check main unit stock
+                ));
+
+            const totalMainUnitQuantity = stockEntries.reduce((sum, s) => sum + s.quantity, 0);
+            const totalSaleUnitQuantity = Number((totalMainUnitQuantity * (saleUnitConversion.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(3));
+
+            console.log(`📊 Stock Check: Required ${quantityToReduce} ${unitId}, Available ${totalSaleUnitQuantity} ${unitId} (in ${totalMainUnitQuantity} main units)`);
+
+            if (totalSaleUnitQuantity < quantityToReduce) {
+                throw new Error(`Insufficient stock for product "${product.name}". Available: ${totalSaleUnitQuantity} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
+            }
+
+            // 5. Convert required quantity to main unit
+            const requiredMainUnitQuantity = Number((quantityToReduce * (mainUnitConversion.conversionFactor / saleUnitConversion.conversionFactor)).toFixed(3));
+            let remainingMainUnitToReduce = requiredMainUnitQuantity;
+            
+            const results = [];
+
+            // 6. Iterate batches from newest to oldest (matches user request "newest first")
+            // Note: User said "creation_timestamp DESC (newest first)"
+            // "Let latest_batch be the first record... IF latest_batch.quantity >= quantity_to_reduce..."
+            // "Iterate through the ordered result set (from newest to oldest)"
+            
+            // We need to map back stock entries to batches to keep order
+            const stockEntriesByBatchId = new Map(stockEntries.map(s => [s.stockBatchId, s]));
+
+            for (const batch of batches) {
+                if (remainingMainUnitToReduce <= 0) break;
+
+                const stockEntry = stockEntriesByBatchId.get(batch.id);
+                if (!stockEntry) continue; // Should not happen if data integrity is good
+
+                const reduceFromThisBatch = Math.min(stockEntry.quantity, remainingMainUnitToReduce);
+                
+                if (reduceFromThisBatch > 0) {
+                    console.log(`📉 Reducing ${reduceFromThisBatch} (main unit) from batch ${batch.id}`);
+
+                    // Update all units in this batch
+                    const allUpdates = await this.updateAllUnitsInBatch(
+                        tx,
+                        batch.id,
+                        productId,
+                        reduceFromThisBatch
+                    );
+
+                    results.push({
+                        batchId: batch.id,
+                        mainUnitReduced: reduceFromThisBatch,
+                        allUpdates
+                    });
+
+                    remainingMainUnitToReduce = Number((remainingMainUnitToReduce - reduceFromThisBatch).toFixed(3));
+                }
+            }
+
+            console.log('✅ [StockBatchService] Stock reduction completed successfully');
+            return {
+                productId,
+                maintainsId,
+                totalReduced: quantityToReduce,
+                unitId,
+                batchesAffected: results
+            };
+        });
+    }
+
+    /**
      * Process sale by specific stock ID with any unit quantity input
      * Now accepts quantity in any unit and automatically reduces all units proportionally
      */

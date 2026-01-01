@@ -193,24 +193,13 @@ export class DeliveryHistoryService {
 
                     // Process each stock reduction using the new stock batch system
                     for (const stockReduction of stocksToReduce) {
-                        // Find the specific stock record that matches the criteria
-                        const [stockRecord] = await tx
-                            .select()
-                            .from(stockTable)
-                            .where(
-                                and(
-                                    eq(stockTable.maintainsId, stockReduction.maintainsId),
-                                    eq(stockTable.productId, stockReduction.productId),
-                                    eq(stockTable.unitId, stockReduction.unitId)
-                                )
-                            );
-
-                        if (!stockRecord) {
-                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId} in maintains ${stockReduction.maintainsId}. Cannot process return completion during bulk update.`);
-                        }
-
-                        // Use StockBatchService to process the reduction properly
-                        await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
+                        // Use StockBatchService to process the reduction properly using FIFO across batches
+                        await StockBatchService.reduceProductStock(
+                            stockReduction.productId, 
+                            stockReduction.maintainsId, 
+                            stockReduction.quantity, 
+                            stockReduction.unitId
+                        );
                     }
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
@@ -666,24 +655,13 @@ export class DeliveryHistoryService {
 
                     // Process each stock reduction using the new stock batch system
                     for (const stockReduction of stocksToReduce) {
-                        // Find the specific stock record that matches the criteria
-                        const [stockRecord] = await tx
-                            .select()
-                            .from(stockTable)
-                            .where(
-                                and(
-                                    eq(stockTable.maintainsId, stockReduction.maintainsId),
-                                    eq(stockTable.productId, stockReduction.productId),
-                                    eq(stockTable.unitId, stockReduction.unitId)
-                                )
-                            );
-
-                        if (!stockRecord) {
-                            throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}`);
-                        }
-
-                        // Use StockBatchService to process the reduction properly
-                        await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
+                        // Use StockBatchService to process the reduction properly using FIFO across batches
+                        await StockBatchService.reduceProductStock(
+                            stockReduction.productId, 
+                            stockReduction.maintainsId, 
+                            stockReduction.quantity, 
+                            stockReduction.unitId
+                        );
                     }
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction

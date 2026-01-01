@@ -583,6 +583,9 @@ export class SaleService {
         try {
             const startDate = new Date(startDateIso);
             const endDate = new Date(endDateIso);
+            const nextDayOfStart = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+            const nextDayOfEnd = new Date(endDate.getTime() + 24 * 60 * 60 * 1000);
+
             if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
                 throw new Error("Invalid date format for 'startDate' or 'endDate'");
             }
@@ -643,8 +646,8 @@ export class SaleService {
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
-                        gte(deliveryHistoryTable.sentAt, startDate),
-                        lt(deliveryHistoryTable.sentAt, endDate),
+                        gte(deliveryHistoryTable.sentAt, endDate),
+                        lt(deliveryHistoryTable.sentAt, nextDayOfEnd),
                         inArray(deliveryHistoryTable.productId, validProductIds)
                     )
                 ) : [];
@@ -725,7 +728,7 @@ export class SaleService {
                     and(
                         eq(dailyStockRecordTable.maintainsId, maintainsId),
                         gte(dailyStockRecordTable.createdAt, startDate),
-                        lt(dailyStockRecordTable.createdAt, endDate),
+                        lt(dailyStockRecordTable.createdAt, nextDayOfStart),
                         inArray(dailyStockRecordTable.productId, productIdsArray),
                         inArray(unitTable.name, unitNamesArray)
                     )
