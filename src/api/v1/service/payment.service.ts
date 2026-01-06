@@ -1,4 +1,4 @@
-import { desc, eq, or, like, sql, inArray, and, gte, lt, lte } from "drizzle-orm";
+import { eq, sql, inArray, desc, like, and, gte, lte, or, notInArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
@@ -262,9 +262,31 @@ export class PaymentService {
     static async getTotalPaymentsByMaintainsOnDate(
         maintainsId: string,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        excludedProductIds: string[] = []
     ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number }> {
         try {
+            const whereCondition = and(
+                eq(paymentTable.maintainsId, maintainsId),
+                gte(paymentTable.createdAt, startDate),
+                lte(paymentTable.createdAt, endDate)
+            );
+
+            let finalWhereCondition = whereCondition;
+
+            if (excludedProductIds.length > 0) {
+                const paymentsWithExcludedProducts = db
+                    .select({ id: paymentSaleTable.paymentId })
+                    .from(paymentSaleTable)
+                    .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+                    .where(inArray(saleTable.productId, excludedProductIds));
+
+                finalWhereCondition = and(
+                    whereCondition,
+                    notInArray(paymentTable.id, paymentsWithExcludedProducts)
+                );
+            }
+
             // Compute breakdown sums in DB: extract each key from JSONB and sum
             const [result] = await db
                 .select({
@@ -276,13 +298,7 @@ export class PaymentService {
                     sendForUse: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'sendForUse')::numeric)), 0)`
                 })
                 .from(paymentTable)
-                .where(
-                    and(
-                        eq(paymentTable.maintainsId, maintainsId),
-                        gte(paymentTable.createdAt, startDate),
-                        lte(paymentTable.createdAt, endDate)
-                    )
-                );
+                .where(finalWhereCondition);
 
             const out = {
                 due: Number.isFinite(Number(result?.due ?? 0)) ? Number(result?.due ?? 0) : 0,

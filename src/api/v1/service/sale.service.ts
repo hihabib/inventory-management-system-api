@@ -1,4 +1,4 @@
-import { eq, and, gte, lte, sum, sql, inArray, lt, gt, asc, desc } from "drizzle-orm";
+import { eq, and, gte, lte, sum, sql, inArray, lt, gt, asc, desc, notInArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable } from "../drizzle/schema/customerDue";
 import { customerDueUpdatesTable } from "../drizzle/schema/customerDueUpdates";
@@ -412,20 +412,35 @@ export class SaleService {
         return sale;
     }
 
+    // Helper to get excluded product IDs (Non-selling products)
+    private static async getExcludedProductIds(): Promise<string[]> {
+        const excludedCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
+        const products = await db
+            .select({ id: productCategoryInProductTable.productId })
+            .from(productCategoryInProductTable)
+            .where(eq(productCategoryInProductTable.productCategoryId, excludedCategoryId));
+        return products.map(p => p.id);
+    }
+
     // Get total discount for a specific calendar date and maintains outlet (optional customerCategoryId)
     static async getTotalDiscountByDate(
         maintainsId: string,
         startDate: Date,
         endDate:Date,
-        customerCategoryId?: string
+        customerCategoryId?: string,
+        excludedProductIds: string[] = []
     ): Promise<number> {
 
         // Build where clause based on provided parameters
-        const baseWhere = and(
+        let baseWhere = and(
             eq(saleTable.maintainsId, maintainsId),
             gte(saleTable.createdAt, startDate),
             lte(saleTable.createdAt, endDate)
         );
+
+        if (excludedProductIds.length > 0) {
+            baseWhere = and(baseWhere, notInArray(saleTable.productId, excludedProductIds));
+        }
 
         const whereClause = customerCategoryId
             ? and(baseWhere, eq(saleTable.customerCategoryId, customerCategoryId))
@@ -440,29 +455,30 @@ export class SaleService {
             .where(whereClause);
 
         const total = Number(result?.totalDiscount ?? 0);
-        console.log("total",total, customerCategoryId);
-        
         return Number.isFinite(total) ? total : 0;
     }
 
     // Get total outgoing product price for a specific calendar date and maintains outlet
     // Calculates gross daily sale amount (SUM(quantityInMainUnit * mainUnitPrice)) without discount
-    static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string): Promise<number> {
+    static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string, excludedProductIds: string[] = []): Promise<number> {
+        let whereClause = and(
+            eq(saleTable.maintainsId, maintainsId),
+            gte(saleTable.createdAt, startDate),
+            lt(saleTable.createdAt, endDate)
+        );
+
+        if (excludedProductIds.length > 0) {
+            whereClause = and(whereClause, notInArray(saleTable.productId, excludedProductIds));
+        }
+
         const [result] = await db
             .select({
                 totalOutgoingPrice: sql<number>`COALESCE(SUM(COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)), 0)`
             })
             .from(saleTable)
-            .where(
-                and(
-                    eq(saleTable.maintainsId, maintainsId),
-                    gte(saleTable.createdAt, startDate),
-                    lt(saleTable.createdAt, endDate)
-                )
-            );
+            .where(whereClause);
 
         const total = Number(result?.totalOutgoingPrice ?? 0);
-        console.log("Number.isFinite(total) ? total : 0", Number.isFinite(total) ? total : 0)
         return Number.isFinite(total) ? total : 0;
     }
 
@@ -493,8 +509,11 @@ export class SaleService {
     }
 
     static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
+        // Fetch excluded product IDs (Non-selling products)
+        const excludedProductIds = await this.getExcludedProductIds();
+
         // Start payments promise separately to preserve type inference
-        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate);
+        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate, excludedProductIds);
 
         const [
             totalOutgoingProductPrice,
@@ -507,16 +526,16 @@ export class SaleService {
             expense,
             sentBy
         ] = await Promise.all([
-            this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565"),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a"),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e"),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate),
+            this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId, excludedProductIds),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", excludedProductIds),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a", excludedProductIds),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", excludedProductIds),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, undefined, excludedProductIds),
             db
                 .select({ stockCash: maintainsTable.stockCash })
                 .from(maintainsTable)
                 .where(eq(maintainsTable.id, maintainsId)),
-            CustomerDueService.getTotalCreditCollection(startDate, endDate, maintainsId),
+            CustomerDueService.getTotalCreditCollection(startDate, endDate, maintainsId, excludedProductIds),
             ExpenseService.getTotalExpense(startDate, endDate, maintainsId),
             this.getCashSendingGroupedByType(startDate, endDate, maintainsId)
         ]);
@@ -646,8 +665,8 @@ export class SaleService {
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
-                        gte(deliveryHistoryTable.sentAt, endDate),
-                        lt(deliveryHistoryTable.sentAt, nextDayOfEnd),
+                        gte(deliveryHistoryTable.sentAt, startDate),
+                        lt(deliveryHistoryTable.sentAt, endDate),
                         inArray(deliveryHistoryTable.productId, validProductIds)
                     )
                 ) : [];
@@ -661,8 +680,8 @@ export class SaleService {
                     productId: saleTable.productId,
                     productName: productTable.name,
                     mainUnitName: unitTable.name,
-                    totalSoldQuantity: sql<number>`COALESCE(SUM(${saleTable.quantityInMainUnit}), 0)`,
-                    totalSaleAmount: sum(saleTable.saleAmount),
+                    totalSoldQuantity: sql<number>`COALESCE(SUM(${saleTable.saleQuantity}), 0)`,
+                    totalSaleAmount: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`,
                     avgMainUnitPrice: sql<number>`COALESCE(AVG(${saleTable.mainUnitPrice}), 0)`,
                     sku: productTable.sku
                 })
@@ -919,7 +938,16 @@ export class SaleService {
             }
 
             // Convert map to array and return
-            return finalResults;
+            return finalResults.map(r => ({
+                ...r,
+                orderedCompletedQuantity: Number(Number(r.orderedCompletedQuantity ?? 0).toFixed(3)),
+                returnedCompletedQuantity: Number(Number(r.returnedCompletedQuantity ?? 0).toFixed(3)),
+                totalSoldQuantity: Number(Number(r.totalSoldQuantity ?? 0).toFixed(3)),
+                mainUnitPrice: Number(Number(r.mainUnitPrice ?? 0).toFixed(3)),
+                totalSaleAmount: Number(Number(r.totalSaleAmount ?? 0).toFixed(3)),
+                previousStockQuantity: Number(Number(r.previousStockQuantity ?? 0).toFixed(3)),
+                previousStockTotalPrice: Number(Number(r.previousStockTotalPrice ?? 0).toFixed(3)),
+            }));
 
         } catch (error) {
             console.error("Error fetching daily report data:", error);

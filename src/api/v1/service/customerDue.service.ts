@@ -1,10 +1,13 @@
-import { eq, sql, inArray, asc, and, gte, lte, or } from "drizzle-orm";
+import { eq, sql, inArray, asc, and, gte, lte, or, notInArray, isNotNull } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { customerDueTable, NewCustomerDue } from "../drizzle/schema/customerDue";
 import { userTable } from "../drizzle/schema/user";
 import { customerTable } from "../drizzle/schema/customer";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { customerDueUpdatesTable } from "../drizzle/schema/customerDueUpdates";
+import { paymentTable } from "../drizzle/schema/payment";
+import { paymentSaleTable } from "../drizzle/schema/paymentSale";
+import { saleTable } from "../drizzle/schema/sale";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { getCurrentDate } from "../utils/timezone";
 import { AppError } from "../utils/AppError";
@@ -270,8 +273,30 @@ export class CustomerDueService {
     }
 
     // Sum of collectedAmount for a given calendar date and maintains outlet
-    static async getTotalCreditCollection(startDate: Date, endDate:Date, maintainsId: string): Promise<number> {
-       
+    static async getTotalCreditCollection(startDate: Date, endDate: Date, maintainsId: string, excludedProductIds: string[] = []): Promise<number> {
+
+        let whereCondition = and(
+            eq(customerDueTable.maintainsId, maintainsId),
+            gte(customerDueUpdatesTable.createdAt, startDate),
+            lte(customerDueUpdatesTable.createdAt, endDate)
+        );
+
+        if (excludedProductIds.length > 0) {
+            const excludedDues = db
+                .select({ id: paymentTable.customerDueId })
+                .from(paymentTable)
+                .innerJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
+                .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+                .where(and(
+                    inArray(saleTable.productId, excludedProductIds),
+                    isNotNull(paymentTable.customerDueId)
+                ));
+
+            whereCondition = and(
+                whereCondition,
+                notInArray(customerDueTable.id, excludedDues)
+            );
+        }
 
         const [result] = await db
             .select({
@@ -279,13 +304,7 @@ export class CustomerDueService {
             })
             .from(customerDueUpdatesTable)
             .innerJoin(customerDueTable, eq(customerDueUpdatesTable.customerDueId, customerDueTable.id))
-            .where(
-                and(
-                    eq(customerDueTable.maintainsId, maintainsId),
-                    gte(customerDueUpdatesTable.createdAt, startDate),
-                    lte(customerDueUpdatesTable.createdAt, endDate)
-                )
-            );
+            .where(whereCondition);
 
         const total = Number(result?.totalChanges ?? 0);
         return Number.isFinite(total) ? total : 0;
