@@ -1,16 +1,9 @@
 import { Response } from "express";
-import { eq } from "drizzle-orm";
 import { AuthRequest } from "../middleware/auth";
 import { SaleService } from "../service/sale.service";
-import { PaymentService } from "../service/payment.service";
-import { ExpenseService } from "../service/expense.service";
-import { CustomerDueService } from "../service/customerDue.service";
 import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
 import { requestHandler } from "../utils/requestHandler";
 import { sendResponse } from "../utils/response";
-import { db } from "../drizzle/db";
-import { maintainsTable } from "../drizzle/schema/maintains";
-import { getCurrentDate } from "../utils/timezone";
 
 export class SaleController {
     static createSale = requestHandler(async (req: AuthRequest, res: Response) => {

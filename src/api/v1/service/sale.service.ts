@@ -615,7 +615,6 @@ export class SaleService {
             // Get all category IDs (including children) for filtering
             const targetCategoryId = maintainsId === "1160ad56-ac12-4034-8091-ae60c31eb624" ? "a530a1b7-a808-473f-b9a4-166aac84d20e" : "cd9e69b0-8601-4f91-b121-46386eeb2c00"; // if maintain is production then use Ingredients category, otherwise use Outlet Products category
             const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"); // remove "Non-selling product" category id
-
             // Fetch valid product IDs first to avoid join multiplication (Cartesian product issue)
             let validProductIds: string[] = [];
             if (allCategoryIds.length > 0) {
@@ -627,14 +626,14 @@ export class SaleService {
             }
 
             const hasProducts = validProductIds.length > 0;
-
             // 1. Fetch Order-Completed delivery history records
             const orderCompletedData = hasProducts ? await db
                 .select({
                     productId: deliveryHistoryTable.productId,
                     productName: productTable.name,
                     unitName: unitTable.name,
-                    orderCompletedQuantity: deliveryHistoryTable.sentQuantity,
+                    receivedQuantity: deliveryHistoryTable.receivedQuantity,
+                    sentQuantity: deliveryHistoryTable.sentQuantity,
                     sku: productTable.sku
                 })
                 .from(deliveryHistoryTable)
@@ -644,8 +643,8 @@ export class SaleService {
                     and(
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Order-Completed"),
-                        gte(deliveryHistoryTable.sentAt, startDate),
-                        lt(deliveryHistoryTable.sentAt, endDate),
+                        gte(deliveryHistoryTable.receivedAt, startDate),
+                        lte(deliveryHistoryTable.receivedAt, endDate),
                         inArray(deliveryHistoryTable.productId, validProductIds)
                     )
                 ) : [];
@@ -667,13 +666,12 @@ export class SaleService {
                         eq(deliveryHistoryTable.maintainsId, maintainsId),
                         eq(deliveryHistoryTable.status, "Return-Completed"),
                         gte(deliveryHistoryTable.sentAt, startDate),
-                        lt(deliveryHistoryTable.sentAt, endDate),
+                        lte(deliveryHistoryTable.sentAt, endDate),
                         inArray(deliveryHistoryTable.productId, validProductIds)
                     )
                 ) : [];
 
-            console.log("startDate", startDate);
-            console.log("endDate", endDate);
+            
 
             // 3. Fetch aggregated sale data
             const saleData = hasProducts ? await db
@@ -683,6 +681,8 @@ export class SaleService {
                     mainUnitName: unitTable.name,
                     totalSoldQuantity: sql<number>`COALESCE(SUM(${saleTable.saleQuantity}), 0)`,
                     totalSaleAmount: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`,
+                    totalSoldQuantityInMainUnit: sql<number>`COALESCE(SUM(${saleTable.quantityInMainUnit}), 0)`,
+                    totalSaleAmountInMainUnit: sql<number>`COALESCE(SUM(${saleTable.quantityInMainUnit} * ${saleTable.mainUnitPrice}), 0)`,
                     avgMainUnitPrice: sql<number>`COALESCE(AVG(${saleTable.mainUnitPrice}), 0)`,
                     sku: productTable.sku
                 })
@@ -693,7 +693,7 @@ export class SaleService {
                     and(
                         eq(saleTable.maintainsId, maintainsId),
                         gte(saleTable.createdAt, startDate),
-                        lt(saleTable.createdAt, endDate),
+                        lte(saleTable.createdAt, endDate),
                         inArray(saleTable.productId, validProductIds)
                     )
                 )
@@ -748,7 +748,7 @@ export class SaleService {
                     and(
                         eq(dailyStockRecordTable.maintainsId, maintainsId),
                         gte(dailyStockRecordTable.createdAt, startDate),
-                        lt(dailyStockRecordTable.createdAt, nextDayOfStart),
+                        lte(dailyStockRecordTable.createdAt, nextDayOfStart),
                         inArray(dailyStockRecordTable.productId, productIdsArray),
                         inArray(unitTable.name, unitNamesArray)
                     )
@@ -806,6 +806,8 @@ export class SaleService {
                     mainUnitName: product.mainUnitName,
                     mainUnitPrice: 0,
                     totalSaleAmount: 0,
+                    totalSoldQuantityInMainUnit: 0,
+                    totalSaleAmountInMainUnit: 0,
                     sku: product.sku,
                     previousStockQuantity: 0,
                     previousStockTotalPrice: 0
@@ -816,7 +818,7 @@ export class SaleService {
             orderCompletedData.forEach(item => {
                 const existing = combinedResults.get(item.productId);
                 if (existing) {
-                    existing.orderedCompletedQuantity += Number(item.orderCompletedQuantity) || 0;
+                    existing.orderedCompletedQuantity += (Number(item.receivedQuantity) || 0);
                 }
             });
 
@@ -835,6 +837,8 @@ export class SaleService {
                     existing.totalSoldQuantity = Number(item.totalSoldQuantity) || 0;
                     existing.mainUnitPrice = Number(item.avgMainUnitPrice) || 0;
                     existing.totalSaleAmount = Number(item.totalSaleAmount) || 0;
+                    existing.totalSoldQuantityInMainUnit = Number(item.totalSoldQuantityInMainUnit) || 0;
+                    existing.totalSaleAmountInMainUnit = Number(item.totalSaleAmountInMainUnit) || 0;
 
                     // Populate stock data from stockMap
                     if (item.mainUnitName) {
@@ -946,6 +950,8 @@ export class SaleService {
                 totalSoldQuantity: Number(Number(r.totalSoldQuantity ?? 0).toFixed(3)),
                 mainUnitPrice: Number(Number(r.mainUnitPrice ?? 0).toFixed(3)),
                 totalSaleAmount: Number(Number(r.totalSaleAmount ?? 0).toFixed(3)),
+                totalSoldQuantityInMainUnit: Number(Number(r.totalSoldQuantityInMainUnit ?? 0).toFixed(3)),
+                totalSaleAmountInMainUnit: Number(Number(r.totalSaleAmountInMainUnit ?? 0).toFixed(3)),
                 previousStockQuantity: Number(Number(r.previousStockQuantity ?? 0).toFixed(3)),
                 previousStockTotalPrice: Number(Number(r.previousStockTotalPrice ?? 0).toFixed(3)),
             }));

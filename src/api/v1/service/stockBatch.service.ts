@@ -522,31 +522,30 @@ export class StockBatchService {
 
             console.log('🧮 [StockBatchService] Calculated reduction for unit', stock.unitId, ':', reductionForThisUnit);
 
-            const newQuantity = Number((stock.quantity - reductionForThisUnit).toFixed(3));
-
-            if (newQuantity < 0) {
-                throw new Error(
-                    `Insufficient stock for product "${product.name}" in unit ${stock.unitId}. Available: ${stock.quantity}, Required: ${reductionForThisUnit}`
-                );
-            }
-
-            // Update the stock
+            // Update the stock using atomic operation to prevent race conditions
             const [updatedStock] = await tx.update(stockTable)
                 .set({
-                    quantity: newQuantity,
+                    quantity: sql`${stockTable.quantity} - ${reductionForThisUnit}`,
                     updatedAt: getCurrentDate()
                 })
                 .where(eq(stockTable.id, stock.id))
                 .returning();
 
-            console.log('✅ [StockBatchService] Updated stock for unit', stock.unitId, 'from', stock.quantity, 'to', newQuantity);
+            // Check if the update resulted in negative stock
+            if (updatedStock.quantity < 0) {
+                throw new Error(
+                    `Insufficient stock for product "${product.name}" in unit ${stock.unitId}. Available: ${stock.quantity}, Required reduction: ${reductionForThisUnit}`
+                );
+            }
+
+            console.log('✅ [StockBatchService] Updated stock for unit', stock.unitId, 'from', stock.quantity, 'to', updatedStock.quantity);
 
             results.push({
                 stock: updatedStock,
                 unitId: stock.unitId,
                 previousQuantity: stock.quantity,
                 reducedQuantity: reductionForThisUnit,
-                newQuantity: newQuantity
+                newQuantity: Number(updatedStock.quantity)
             });
         }
 
