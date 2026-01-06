@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, lte, sql, sum, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, lte, sql, inArray, notInArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
@@ -7,7 +7,6 @@ import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { saleTable } from "../drizzle/schema/sale";
 import { customerTable } from "../drizzle/schema/customer";
-import { getCurrentDate } from "../utils/timezone";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { unitTable } from "../drizzle/schema/unit";
 import { userTable } from "../drizzle/schema/user";
@@ -62,6 +61,16 @@ interface DashboardData {
 }
 
 export class DashboardService {
+    // Helper to get excluded product IDs (Non-selling products)
+    private static async getExcludedProductIds(): Promise<string[]> {
+        const excludedCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
+        const products = await db
+            .select({ id: productCategoryInProductTable.productId })
+            .from(productCategoryInProductTable)
+            .where(eq(productCategoryInProductTable.productCategoryId, excludedCategoryId));
+        return products.map(p => p.id);
+    }
+
     static async getDashboardData(filters: DashboardFilters): Promise<DashboardData> {
         const startDate = new Date(filters.start);
         const endDate = new Date(filters.end);
@@ -86,7 +95,29 @@ export class DashboardService {
             ? filters.customerCategoryIds
             : undefined;
 
+        const excludedProductIds = await this.getExcludedProductIds();
+
         // Resolve payment IDs filtered by maintains, date range and optional customer category filter via joins
+        let paymentWhereCondition = and(
+            gte(paymentTable.createdAt, startDate),
+            lte(paymentTable.createdAt, endDate),
+            maintainsIds ? inArray(paymentTable.maintainsId, maintainsIds) : sql`true`,
+            categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
+        );
+
+        if (excludedProductIds.length > 0) {
+            const paymentsWithExcludedProducts = db
+                .select({ id: paymentSaleTable.paymentId })
+                .from(paymentSaleTable)
+                .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+                .where(inArray(saleTable.productId, excludedProductIds));
+            
+            paymentWhereCondition = and(
+                paymentWhereCondition,
+                notInArray(paymentTable.id, paymentsWithExcludedProducts)
+            );
+        }
+
         const paymentsFilteredRows = await db
             .select({
                 paymentId: paymentTable.id,
@@ -96,12 +127,7 @@ export class DashboardService {
             .leftJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
             .leftJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
             .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
-            .where(and(
-                gte(paymentTable.createdAt, startDate),
-                lte(paymentTable.createdAt, endDate),
-                maintainsIds ? inArray(paymentTable.maintainsId, maintainsIds) : sql`true`,
-                categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
-            ));
+            .where(paymentWhereCondition);
 
         const uniquePaymentIds = Array.from(new Set(paymentsFilteredRows.map(r => r.paymentId)));
         
@@ -109,34 +135,46 @@ export class DashboardService {
         const transactionCountValue = uniquePaymentIds.length;
 
         // saleCount with date, maintains and category filters
+        let saleWhereCondition = and(
+            gte(saleTable.createdAt, startDate),
+            lte(saleTable.createdAt, endDate),
+            maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+            categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
+        );
+
+        if (excludedProductIds.length > 0) {
+            saleWhereCondition = and(saleWhereCondition, notInArray(saleTable.productId, excludedProductIds));
+        }
+
         const [saleTotalRow] = await db
             .select({
                 totalSales: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
             })
             .from(saleTable)
             .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
-            .where(and(
-                gte(saleTable.createdAt, startDate),
-                lte(saleTable.createdAt, endDate),
-                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
-                categoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, categoryIds) : sql`true`
-            ));
+            .where(saleWhereCondition);
 
         // productCount filtered only by date range (no maintains/customerCategory relation)
+        let productWhereCondition = and(
+            gte(productTable.createdAt, startDate),
+            lte(productTable.createdAt, endDate)
+        );
+
+        if (excludedProductIds.length > 0) {
+            productWhereCondition = and(productWhereCondition, notInArray(productTable.id, excludedProductIds));
+        }
+
         const [productCountRow] = await db
             .select({ count: count() })
             .from(productTable)
-            .where(and(
-                gte(productTable.createdAt, startDate),
-                lte(productTable.createdAt, endDate)
-            ));
+            .where(productWhereCondition);
 
         // Sales graph data for the date range with filters
-        const saleDataGraphReport = await this.getSaleDataGraphReport(startDate, endDate, maintainsIds, categoryIds);
+        const saleDataGraphReport = await this.getSaleDataGraphReport(startDate, endDate, maintainsIds, categoryIds, excludedProductIds);
 
-        const topSellingProducts = await this.getTopSellingProducts(startDate, endDate, maintainsIds, categoryIds);
+        const topSellingProducts = await this.getTopSellingProducts(startDate, endDate, maintainsIds, categoryIds, excludedProductIds);
 
-        const addedProducts = await this.getAddedProducts(startDate, endDate);
+        const addedProducts = await this.getAddedProducts(startDate, endDate, excludedProductIds);
 
         return {
             totalTransactions: Number(transactionCountValue || 0),
@@ -148,7 +186,16 @@ export class DashboardService {
         };
     }
 
-    private static async getAddedProducts(startDate: Date, endDate: Date): Promise<AddedProduct[]> {
+    private static async getAddedProducts(startDate: Date, endDate: Date, excludedProductIds: string[] = []): Promise<AddedProduct[]> {
+        let whereCondition = and(
+            gte(productTable.createdAt, startDate),
+            lte(productTable.createdAt, endDate)
+        );
+
+        if (excludedProductIds.length > 0) {
+            whereCondition = and(whereCondition, notInArray(productTable.id, excludedProductIds));
+        }
+
         const products = await db
             .select({
                 name: productTable.name,
@@ -164,10 +211,7 @@ export class DashboardService {
             .from(productTable)
             .leftJoin(unitTable, eq(productTable.mainUnitId, unitTable.id))
             .leftJoin(userTable, eq(productTable.createdBy, userTable.id))
-            .where(and(
-                gte(productTable.createdAt, startDate),
-                lte(productTable.createdAt, endDate)
-            ))
+            .where(whereCondition)
             .orderBy(desc(productTable.createdAt));
 
         return products.map(p => ({
@@ -191,8 +235,20 @@ export class DashboardService {
         startDate: Date,
         endDate: Date,
         maintainsIds?: string[],
-        customerCategoryIds?: string[]
+        customerCategoryIds?: string[],
+        excludedProductIds: string[] = []
     ): Promise<SaleGraphPoint[]> {
+        let whereCondition = and(
+            gte(saleTable.createdAt, startDate),
+            lte(saleTable.createdAt, endDate),
+            maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+            customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`
+        );
+
+        if (excludedProductIds.length > 0) {
+            whereCondition = and(whereCondition, notInArray(saleTable.productId, excludedProductIds));
+        }
+
         const salesData = await db
             .select({
                 date: sql<string>`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`,
@@ -200,12 +256,7 @@ export class DashboardService {
             })
             .from(saleTable)
             .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
-            .where(and(
-                gte(saleTable.createdAt, startDate),
-                lte(saleTable.createdAt, endDate),
-                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
-                customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`
-            ))
+            .where(whereCondition)
             .groupBy(sql`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`)
             .orderBy(sql`DATE(${saleTable.createdAt} AT TIME ZONE 'Asia/Dhaka')`);
 
@@ -262,10 +313,23 @@ export class DashboardService {
         startDate: Date,
         endDate: Date,
         maintainsIds?: string[],
-        customerCategoryIds?: string[]
+        customerCategoryIds?: string[],
+        excludedProductIds: string[] = []
     ): Promise<TopSellingProduct[]> {
         const SPECIAL_MAINTAINS_ID = "1160ad56-ac12-4034-8091-ae60c31eb624";
         const shouldRestrictToOutlet = !maintainsIds || !maintainsIds.includes(SPECIAL_MAINTAINS_ID);
+
+        let whereCondition = and(
+            gte(saleTable.createdAt, startDate),
+            lte(saleTable.createdAt, endDate),
+            maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
+            customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`,
+            shouldRestrictToOutlet ? eq(maintainsTable.type, 'Outlet') : sql`true`
+        );
+
+        if (excludedProductIds.length > 0) {
+            whereCondition = and(whereCondition, notInArray(saleTable.productId, excludedProductIds));
+        }
 
         const topProducts = await db
             .select({
@@ -277,13 +341,7 @@ export class DashboardService {
             .from(saleTable)
             .leftJoin(customerTable, eq(saleTable.customerId, customerTable.id))
             .leftJoin(maintainsTable, eq(saleTable.maintainsId, maintainsTable.id))
-            .where(and(
-                gte(saleTable.createdAt, startDate),
-                lte(saleTable.createdAt, endDate),
-                maintainsIds ? inArray(saleTable.maintainsId, maintainsIds) : sql`true`,
-                customerCategoryIds ? inArray(sql<string>`COALESCE(${saleTable.customerCategoryId}, ${customerTable.categoryId})`, customerCategoryIds) : sql`true`,
-                shouldRestrictToOutlet ? eq(maintainsTable.type, 'Outlet') : sql`true`
-            ))
+            .where(whereCondition)
             .groupBy(saleTable.productId, saleTable.productName)
             .orderBy(desc(sql`SUM(${saleTable.saleQuantity})`), desc(sql`SUM(${saleTable.saleAmount})`))
             // .limit(5);

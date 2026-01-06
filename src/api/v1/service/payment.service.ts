@@ -1,8 +1,9 @@
-import { eq, sql, inArray, desc, like, and, gte, lte, or, notInArray } from "drizzle-orm";
+import { eq, sql, inArray, desc, like, and, gte, lte, or, notInArray, lt } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { paymentTable } from "../drizzle/schema/payment";
 import { paymentSaleTable } from "../drizzle/schema/paymentSale";
 import { saleTable } from "../drizzle/schema/sale";
+import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { userTable } from "../drizzle/schema/user";
 import { roleTable } from "../drizzle/schema/role";
 import { maintainsTable } from "../drizzle/schema/maintains";
@@ -262,30 +263,14 @@ export class PaymentService {
     static async getTotalPaymentsByMaintainsOnDate(
         maintainsId: string,
         startDate: Date,
-        endDate: Date,
-        excludedProductIds: string[] = []
-    ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number }> {
+        endDate: Date
+    ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number; nonSellingItemSold: number }> {
         try {
             const whereCondition = and(
                 eq(paymentTable.maintainsId, maintainsId),
                 gte(paymentTable.createdAt, startDate),
-                lte(paymentTable.createdAt, endDate)
+                lt(paymentTable.createdAt, endDate)
             );
-
-            let finalWhereCondition = whereCondition;
-
-            if (excludedProductIds.length > 0) {
-                const paymentsWithExcludedProducts = db
-                    .select({ id: paymentSaleTable.paymentId })
-                    .from(paymentSaleTable)
-                    .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
-                    .where(inArray(saleTable.productId, excludedProductIds));
-
-                finalWhereCondition = and(
-                    whereCondition,
-                    notInArray(paymentTable.id, paymentsWithExcludedProducts)
-                );
-            }
 
             // Compute breakdown sums in DB: extract each key from JSONB and sum
             const [result] = await db
@@ -298,7 +283,24 @@ export class PaymentService {
                     sendForUse: sql<number>`COALESCE(SUM(((${paymentTable.payments} ->> 'sendForUse')::numeric)), 0)`
                 })
                 .from(paymentTable)
-                .where(finalWhereCondition);
+                .where(whereCondition);
+
+            // Calculate non-selling item sold amount
+            const nonSellingCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
+            const [nonSellingResult] = await db
+                .select({
+                    total: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
+                })
+                .from(paymentTable)
+                .innerJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
+                .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+                .innerJoin(productCategoryInProductTable, eq(saleTable.productId, productCategoryInProductTable.productId))
+                .where(and(
+                    eq(paymentTable.maintainsId, maintainsId),
+                    gte(paymentTable.createdAt, startDate),
+                    lt(paymentTable.createdAt, endDate),
+                    eq(productCategoryInProductTable.productCategoryId, nonSellingCategoryId)
+                ));
 
             const out = {
                 due: Number.isFinite(Number(result?.due ?? 0)) ? Number(result?.due ?? 0) : 0,
@@ -306,7 +308,8 @@ export class PaymentService {
                 cash: Number.isFinite(Number(result?.cash ?? 0)) ? Number(result?.cash ?? 0) : 0,
                 bkash: Number.isFinite(Number(result?.bkash ?? 0)) ? Number(result?.bkash ?? 0) : 0,
                 nogod: Number.isFinite(Number(result?.nogod ?? 0)) ? Number(result?.nogod ?? 0) : 0,
-                sendForUse: Number.isFinite(Number(result?.sendForUse ?? 0)) ? Number(result?.sendForUse ?? 0) : 0
+                sendForUse: Number.isFinite(Number(result?.sendForUse ?? 0)) ? Number(result?.sendForUse ?? 0) : 0,
+                nonSellingItemSold: Number.isFinite(Number(nonSellingResult?.total ?? 0)) ? Number(nonSellingResult?.total ?? 0) : 0
             };
             // Ensure primitive numbers
             return {
@@ -315,11 +318,12 @@ export class PaymentService {
                 cash: Number(out.cash) || 0,
                 bkash: Number(out.bkash) || 0,
                 nogod: Number(out.nogod) || 0,
-                sendForUse: Number(out.sendForUse) || 0
+                sendForUse: Number(out.sendForUse) || 0,
+                nonSellingItemSold: Number(out.nonSellingItemSold) || 0
             };
         } catch (err) {
-            console.error('[PaymentService] getTotalDueByMaintainsOnDate error:', err);
-            return { due: 0, card: 0, cash: 0, bkash: 0, nogod: 0, sendForUse: 0 };
+            console.error('[PaymentService] getTotalPaymentsByMaintainsOnDate error:', err);
+            return { due: 0, card: 0, cash: 0, bkash: 0, nogod: 0, sendForUse: 0, nonSellingItemSold: 0 };
         }
     }
 }

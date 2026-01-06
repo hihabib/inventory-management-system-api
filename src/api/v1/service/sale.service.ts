@@ -513,7 +513,7 @@ export class SaleService {
         const excludedProductIds = await this.getExcludedProductIds();
 
         // Start payments promise separately to preserve type inference
-        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate, excludedProductIds);
+        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate);
 
         const [
             totalOutgoingProductPrice,
@@ -544,7 +544,7 @@ export class SaleService {
 
         const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
         const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
-        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse } = payments;
+        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold } = payments;
         const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
         
         const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
@@ -562,6 +562,7 @@ export class SaleService {
             bkashSale: Number(bkashSale || 0),
             nogodSale: Number(nogodSale || 0),
             sendForUse: Number(sendForUse || 0),
+            nonSellingItemSold: Number(nonSellingItemSold || 0),
             previousCash: Number(previousCash || 0),
             creditCollection: Number(creditCollection || 0),
             expense: Number(expense || 0),
