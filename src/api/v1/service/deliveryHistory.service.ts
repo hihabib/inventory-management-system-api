@@ -358,6 +358,35 @@ export class DeliveryHistoryService {
                 .where(eq(deliveryHistoryTable.id, id))
                 .returning();
 
+            // VERIFICATION: Ensure receivedQuantity is correctly persisted if it was provided
+            if (deliveryHistoryData.receivedQuantity !== undefined) {
+                const expectedQty = parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3));
+                const actualQty = Number(updated.receivedQuantity); // Ensure number comparison
+                
+                // Allow for tiny floating point differences if any, though toFixed(3) should align them
+                if (Math.abs(actualQty - expectedQty) > 0.0001) {
+                        console.error("[DeliveryHistoryService#update] Verification failed for receivedQuantity", {
+                        id,
+                        expected: expectedQty,
+                        actual: actualQty,
+                        updateDataQty: deliveryHistoryData.receivedQuantity
+                    });
+                    tx.rollback();
+                    throw new Error(`Data inconsistency detected: receivedQuantity for ID ${id} was not saved correctly. Expected ${expectedQty}, got ${actualQty}`);
+                }
+
+                // DOUBLE VERIFICATION: Re-fetch from DB to ensure persistence
+                const [refetched] = await tx.select({ receivedQuantity: deliveryHistoryTable.receivedQuantity })
+                    .from(deliveryHistoryTable)
+                    .where(eq(deliveryHistoryTable.id, id));
+                    
+                if (!refetched || Math.abs(Number(refetched.receivedQuantity) - expectedQty) > 0.0001) {
+                        console.error("[DeliveryHistoryService#update] Re-fetch verification failed", { id, refetched });
+                        tx.rollback();
+                        throw new Error(`DB Persistence failure: receivedQuantity for ID ${id} was not persisted.`);
+                }
+            }
+
             // If status is being updated to 'Order-Completed', add stock and set latestUnitPriceData
             if (deliveryHistoryData.status === 'Order-Completed') {
                 const stockData: NewStock = {
@@ -506,15 +535,54 @@ export class DeliveryHistoryService {
                     .where(eq(deliveryHistoryTable.id, id))
                     .returning();
 
+                // VERIFICATION: Ensure receivedQuantity is correctly persisted if it was provided
+                if (updateData.receivedQuantity !== undefined) {
+                    const expectedQty = parseFloat(updateData.receivedQuantity.toFixed(3));
+                    const actualQty = Number(updated.receivedQuantity); // Ensure number comparison
+                    
+                    // Allow for tiny floating point differences if any, though toFixed(3) should align them
+                    if (Math.abs(actualQty - expectedQty) > 0.0001) {
+                         console.error("[DeliveryHistoryService#bulkUpdate] Verification failed for receivedQuantity", {
+                            id,
+                            expected: expectedQty,
+                            actual: actualQty,
+                            updateDataQty: updateData.receivedQuantity
+                        });
+                        tx.rollback();
+                        throw new Error(`Data inconsistency detected: receivedQuantity for ID ${id} was not saved correctly. Expected ${expectedQty}, got ${actualQty}`);
+                    }
+
+                    // DOUBLE VERIFICATION: Re-fetch from DB to ensure persistence
+                    const [refetched] = await tx.select({ receivedQuantity: deliveryHistoryTable.receivedQuantity })
+                        .from(deliveryHistoryTable)
+                        .where(eq(deliveryHistoryTable.id, id));
+                     
+                    if (!refetched || Math.abs(Number(refetched.receivedQuantity) - expectedQty) > 0.0001) {
+                         console.error("[DeliveryHistoryService#bulkUpdate] Re-fetch verification failed", { id, refetched });
+                         tx.rollback();
+                         throw new Error(`DB Persistence failure: receivedQuantity for ID ${id} was not persisted.`);
+                    }
+                }
+
                 // If status is being updated to 'Order-Completed', prepare stock data to add
                 // Only add stock if the status is CHANGING to 'Order-Completed'
                 if (updateData.status === 'Order-Completed' && existingDeliveryHistory[0].status !== 'Order-Completed') {
+                    // VALIDATION: Ensure receivedQuantity is present and valid
+                    const receivedQty = updated.receivedQuantity; // This comes from DB returning()
+                    
+                    if (receivedQty === null || receivedQty === undefined || Number(receivedQty) <= 0) {
+                         // Fallback check: if updateData didn't have it, maybe it was already in DB?
+                         // But if it's 0, we shouldn't complete the order typically? 
+                         // For now, warn or error if it's missing/zero but required for stock
+                         console.warn("[DeliveryHistoryService#bulkUpdate] Warning: Completing order with 0 or missing receivedQuantity", { id, receivedQty });
+                    }
+
                     const stockData: NewStock = {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
                         unitId: updated.unitId,
                         pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
-                        quantity: parseFloat(updated.receivedQuantity.toFixed(3))
+                        quantity: parseFloat(Number(receivedQty).toFixed(3))
                     };
                     stocksToAdd.push(stockData);
                     // Capture client-provided latestUnitPriceData for this record
