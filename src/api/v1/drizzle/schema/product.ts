@@ -14,6 +14,8 @@ export const productTable = pgTable('product', {
     mainUnitId: uuid('main_unit_id').references(() => unitTable.id),
     // Default order unit identifier or label; optional, defaults to empty string
     defaultOrderUnit: varchar('default_order_unit').default(""),
+    // Active/inactive flag; defaults to active
+    isActive: boolean('is_active').default(true).notNull(),
     isDeleted: boolean('is_deleted').default(false).notNull(),
     deletedAt: timestamp('deleted_at', {withTimezone: true}),
 });

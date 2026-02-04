@@ -9,7 +9,7 @@ import { getFilterAndPaginationFromRequest } from "../utils/filterWithPaginate";
 export class ProductController {
     static createProductWithUnits = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id: userId } = req.user
-        const { name, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions } = req.body as NewProduct & { 
+        const { name, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions, isActive } = req.body as NewProduct & { 
             unitConversions: Array<{ unitId: string; conversionFactor: number }>, 
             categoriesId: string[] 
         };
@@ -22,13 +22,14 @@ export class ProductController {
             defaultOrderUnit,
             categoriesId,
             unitConversions,
+            isActive,
             createdBy: userId,
         });
         sendResponse(res, 201, 'Product created with units successfully', createdProduct);
     })
 
     static updateProductWithUnits = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { name, id, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions } = req.body as Partial<NewProduct> & { 
+        const { name, id, bengaliName, sku, lowStockThreshold, mainUnitId, defaultOrderUnit, categoriesId, unitConversions, isActive } = req.body as Partial<NewProduct> & { 
             id: string, 
             unitConversions?: Array<{ unitId: string; conversionFactor: number }>, 
             categoriesId?: string[] 
@@ -42,7 +43,8 @@ export class ProductController {
             mainUnitId,
             defaultOrderUnit,
             categoriesId,
-            unitConversions
+            unitConversions,
+            isActive
         });
         sendResponse(res, 200, 'Product updated with units successfully', updatedProduct);
     })

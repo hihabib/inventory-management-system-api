@@ -11,7 +11,6 @@ export class CustomerDueController {
     static getCustomerDues = requestHandler(async (req: AuthRequest, res: Response) => {
         const { pagination, filter } = getFilterAndPaginationFromRequest(req);
         const result = await CustomerDueService.getCustomerDues(pagination, filter);
-        
         sendResponse(res, 200, "Customer due records retrieved successfully", result);
     });
 

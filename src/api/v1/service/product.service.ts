@@ -1,4 +1,3 @@
-import { ProductCategoryInProductTable } from './../drizzle/schema/productCategoryInProduct';
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewProduct, productTable } from "../drizzle/schema/product";
@@ -264,6 +263,7 @@ export class ProductService {
                 bengaliName: productTable.bengaliName,
                 lowStockThreshold: productTable.lowStockThreshold,
                 sku: productTable.sku,
+                isActive: productTable.isActive,
                 defaultOrderUnit: productTable.defaultOrderUnit,
                 mainUnit: {
                     id: unitTable.id,
@@ -442,6 +442,15 @@ export class ProductService {
         // Handle hierarchical category filtering
         let modifiedFilter = { ...filter };
         
+        // Handle isActive filtering
+        // If includeInActive is not explicitly true, default to showing only active products
+        const includeInActive = modifiedFilter['includeInActive']?.[0] === 'true';
+        delete modifiedFilter['includeInActive'];
+
+        if (!includeInActive) {
+            modifiedFilter['isActive'] = [true];
+        }
+
         if (filter && filter['productCategory.id']) {
             const categoryIds = Array.isArray(filter['productCategory.id']) 
                 ? filter['productCategory.id'] 
@@ -500,6 +509,7 @@ export class ProductService {
                 bengaliName: productTable.bengaliName,
                 lowStockThreshold: productTable.lowStockThreshold,
                 sku: productTable.sku,
+                isActive: productTable.isActive,
                 defaultOrderUnit: productTable.defaultOrderUnit,
                 mainUnit: {
                     id: unitTable.id,
@@ -515,6 +525,7 @@ export class ProductService {
                 productTable.bengaliName,
                 productTable.lowStockThreshold,
                 productTable.sku,
+                productTable.isActive,
                 productTable.defaultOrderUnit,
                 unitTable.id,
                 unitTable.name,

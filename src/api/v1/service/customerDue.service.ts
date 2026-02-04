@@ -127,6 +127,7 @@ export class CustomerDueService {
                     condition: eq(customerDueTable.maintainsId, maintainsTable.id)
                 }
             ],
+            orderBy: sql`${customerDueTable.updatedAt} DESC`,
             select: {
                 id: customerDueTable.id,
                 createdAt: customerDueTable.createdAt,
