@@ -414,11 +414,13 @@ export class SaleService {
 
     // Helper to get excluded product IDs (Non-selling products)
     private static async getExcludedProductIds(): Promise<string[]> {
-        const excludedCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
+        const excludedCategoryId = "7fc57497-4215-452c-b292-9bedc540f652"; 
         const products = await db
-            .select({ id: productCategoryInProductTable.productId })
+            .select({ id: productCategoryInProductTable.productId, name: productTable.name })
             .from(productCategoryInProductTable)
-            .where(eq(productCategoryInProductTable.productCategoryId, excludedCategoryId));
+            .where(eq(productCategoryInProductTable.productCategoryId, excludedCategoryId))
+            .leftJoin(productTable, eq(productCategoryInProductTable.productId, productTable.id));
+        console.log("products are excluding", products.map(p => p.name))
         return products.map(p => p.id);
     }
 

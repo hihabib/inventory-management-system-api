@@ -289,7 +289,7 @@ export class PaymentService {
             const nonSellingCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
             const [nonSellingResult] = await db
                 .select({
-                    total: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
+                    total: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`
                 })
                 .from(paymentTable)
                 .innerJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
