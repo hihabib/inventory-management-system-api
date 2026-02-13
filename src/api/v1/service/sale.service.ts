@@ -449,7 +449,7 @@ export class SaleService {
         // Perform discount calculation in the database layer
         const [result] = await db
             .select({
-                totalDiscount: sql<number>`COALESCE(SUM((COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)) - COALESCE(${saleTable.saleAmount}, 0)), 0)`
+                totalDiscount: sql<number>`COALESCE(SUM(${saleTable.discountAmount}), 0)`
             })
             .from(saleTable)
             .where(whereClause);
@@ -527,10 +527,10 @@ export class SaleService {
             sentBy
         ] = await Promise.all([
             this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId, excludedProductIds),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", excludedProductIds),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a", excludedProductIds),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", excludedProductIds),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, undefined, excludedProductIds),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", []),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a", []),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", []),
+            this.getTotalDiscountByDate(maintainsId, startDate, endDate, undefined, []),
             db
                 .select({ stockCash: maintainsTable.stockCash })
                 .from(maintainsTable)
