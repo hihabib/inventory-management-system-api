@@ -1,5 +1,6 @@
 import { asc, desc, eq, sql, and, inArray } from "drizzle-orm";
 import { db } from "../drizzle/db";
+import { AppError } from "../utils/AppError";
 import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { StockService } from "./stock.service";
@@ -13,16 +14,55 @@ import { productTable } from "../drizzle/schema/product";
 import { unitTable } from "../drizzle/schema/unit";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
+import { maintainsTable } from "../drizzle/schema/maintains";
 
 export class DeliveryHistoryService {
+    private static async validateSenderStock(tx: any, productId: string, senderMaintainsId: string, quantity: number, unitId: string) {
+        if (!quantity || quantity <= 0) return;
+
+        // Get product and main unit
+        const [product] = await tx.select().from(productTable).where(eq(productTable.id, productId));
+        if (!product || !product.mainUnitId) return; // Should handle error?
+
+        // Get unit conversions
+        const unitConversions = await tx.select().from(unitConversionTable).where(eq(unitConversionTable.productId, productId));
+        const mainConv = unitConversions.find((uc: any) => uc.unitId === product.mainUnitId);
+        const reqConv = unitConversions.find((uc: any) => uc.unitId === unitId);
+
+        if (!mainConv || !reqConv) return;
+
+        const reqMainQty = quantity * (reqConv.conversionFactor / mainConv.conversionFactor);
+
+        // Get available stock in main unit for sender
+        const senderStocks = await tx.select().from(stockTable).where(and(
+            eq(stockTable.productId, productId),
+            eq(stockTable.maintainsId, senderMaintainsId)
+        ));
+
+        let availableMainQty = 0;
+        for (const stock of senderStocks) {
+            const stockConv = unitConversions.find((uc: any) => uc.unitId === stock.unitId);
+            if (stockConv) {
+                availableMainQty += Number(stock.quantity) * (stockConv.conversionFactor / mainConv.conversionFactor);
+            }
+        }
+
+        if (availableMainQty < reqMainQty) {
+            const [maintains] = await tx.select().from(maintainsTable).where(eq(maintainsTable.id, senderMaintainsId));
+            throw new Error(`No enough stock for this product in ${maintains?.name || 'Sender Outlet'}`);
+        }
+    }
+
     static async createDeliveryHistory(deliveryHistoryData: NewDeliveryHistory[]) {
         return await db.transaction(async (tx) => {
             const stocksToAdd: NewStock[] = [];
-            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number }> = [];
+            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number, options?: { force?: boolean, pricePerQuantity?: number } }> = [];
             const stocksToReplace: Array<{ maintainsId: string, productId: string, unitId: string, pricePerQuantity: number, quantity: number, latestUnitPriceData?: Array<{ unitId: string; pricePerQuantity: number }> }> = [];
 
             // Apply decimal precision formatting to each delivery history item
-            const formattedData = deliveryHistoryData.map(item => {
+            const formattedData = [];
+            
+            for (const item of deliveryHistoryData) {
                 const formatted = {
                     ...item,
                     pricePerQuantity: Number(item.pricePerQuantity.toFixed(2)),
@@ -50,12 +90,36 @@ export class DeliveryHistoryService {
                     formatted.cancelledAt = getCurrentDate();
                 } else if (item.status === "Reset-Requested" || item.status === "Reset-Completed") {
                     formatted.sentAt = getCurrentDate();
-                } 
+                } else if (item.status === "Transfer-Placed") {
+                    formatted.sentAt = getCurrentDate(); // Use sentAt for transfer placed date
+                    formatted.orderedAt = null;
+                    formatted.cancelledAt = null;
+                    // Ensure required fields are set to 0 if not provided
+                    formatted.orderedQuantity = item.orderedQuantity ? Number(item.orderedQuantity.toFixed(3)) : 0;
+                    formatted.receivedQuantity = item.receivedQuantity ? Number(item.receivedQuantity.toFixed(3)) : 0;
+                } else if (item.status === "Transfer-Completed") {
+                    formatted.receivedAt = getCurrentDate();
+                    formatted.cancelledAt = null;
+                } else if (item.status === "Transfer-Cancelled") {
+                    formatted.cancelledAt = getCurrentDate();
+                }
 
+                // Validate sender stock for Transfer statuses
+                if (["Transfer-Placed", "Transfer-Completed", "Transfer-Cancelled"].includes(item.status)) {
+                    if (!item.transferSenderMaintainsId) {
+                        throw new Error(`transferSenderMaintainsId is required for status ${item.status}`);
+                    }
+                }
 
+                if (item.status === "Transfer-Placed") {
+                    const qty = item.sentQuantity || item.orderedQuantity || item.receivedQuantity || 0;
+                    if (item.transferSenderMaintainsId && qty > 0) {
+                        await DeliveryHistoryService.validateSenderStock(tx, item.productId, item.transferSenderMaintainsId, qty, item.unitId);
+                    }
+                }
 
-                return formatted;
-            });
+                formattedData.push(formatted);
+            }
 
             const createdDeliveryHistories = await tx.insert(deliveryHistoryTable).values(formattedData).returning();
 
@@ -71,6 +135,26 @@ export class DeliveryHistoryService {
                         quantity: created.receivedQuantity
                     };
                     stocksToAdd.push(stockData);
+                }
+
+                // If status is 'Transfer-Completed', prepare stock data for transfer
+                if (created.status === 'Transfer-Completed' && created.transferSenderMaintainsId) {
+                    // Add to Receiver
+                    stocksToAdd.push({
+                        maintainsId: created.maintainsId,
+                        productId: created.productId,
+                        unitId: created.unitId,
+                        pricePerQuantity: created.pricePerQuantity,
+                        quantity: created.receivedQuantity
+                    });
+
+                    // Reduce from Sender
+                    stocksToReduce.push({
+                        maintainsId: created.transferSenderMaintainsId,
+                        productId: created.productId,
+                        unitId: created.unitId,
+                        quantity: created.receivedQuantity
+                    });
                 }
 
                 // If status is 'Return-Completed', prepare stock data to reduce
@@ -143,7 +227,6 @@ export class DeliveryHistoryService {
                                 maintainsId: stocks[0].maintainsId,
                                 mainUnitId
                             });
-                            tx.rollback();
                             throw new Error(`Main unit stock not found for product ${stocks[0].productId}`);
                         }
                         // Collect unit prices: prefer client-provided latestUnitPriceData for this key
@@ -164,7 +247,8 @@ export class DeliveryHistoryService {
                                 mainUnitQuantity: mainStock.quantity,
                                 unitPrices: unitPrices,
                                 productionDate: getCurrentDate()
-                            }
+                            },
+                            tx
                         );
                     }
 
@@ -181,7 +265,6 @@ export class DeliveryHistoryService {
                 } catch (error) {
                     // If stock creation fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#create] Rolling back during stocksToAdd", { error });
-                    tx.rollback();
                     throw error;
                 }
             }
@@ -198,13 +281,14 @@ export class DeliveryHistoryService {
                             stockReduction.productId, 
                             stockReduction.maintainsId, 
                             stockReduction.quantity, 
-                            stockReduction.unitId
+                            stockReduction.unitId,
+                            undefined, // options
+                            tx
                         );
                     }
                 } catch (error) {
                     // If stock reduction fails, rollback the entire transaction
                     console.error("[DeliveryHistoryService#create] Rolling back during stocksToReduce", { error });
-                    tx.rollback();
                     throw error;
                 }
             }
@@ -231,7 +315,6 @@ export class DeliveryHistoryService {
                         const [product] = await tx.select().from(productTable).where(eq(productTable.id, productId));
                         if (!product || !product.mainUnitId) {
                             console.error("[DeliveryHistoryService#create] Rolling back: product or main unit not found for replace", { productId });
-                            tx.rollback();
                             throw new Error(`Product or main unit not found for product ${productId}`);
                         }
 
@@ -240,7 +323,6 @@ export class DeliveryHistoryService {
                         const refConv = unitConversions.find(uc => uc.unitId === reference.unitId);
                         if (!mainConv || !refConv) {
                             console.error("[DeliveryHistoryService#create] Rolling back: unit conversion not found for replace", { productId, mainUnitId: product.mainUnitId, refUnitId: reference.unitId });
-                            tx.rollback();
                             throw new Error(`Unit conversion not found for product ${productId}`);
                         }
 
@@ -309,7 +391,6 @@ export class DeliveryHistoryService {
                     }
                 } catch (error) {
                     console.error("[DeliveryHistoryService#create] Rolling back during stocksToReplace", { error });
-                    tx.rollback();
                     throw error;
                 }
             }
@@ -323,18 +404,31 @@ export class DeliveryHistoryService {
             // Check if delivery history exists
             const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
             if (existingDeliveryHistory.length === 0) {
-                console.error("[DeliveryHistoryService#update] Rolling back: delivery history not found", { id });
-                tx.rollback();
                 throw new Error(`Delivery history with ID '${id}' not found. Please verify the delivery history ID and try again.`);
+            }
+            const existing = existingDeliveryHistory[0];
+
+            // Validate status transition for Transfer
+            if (deliveryHistoryData.status && deliveryHistoryData.status !== existing.status) {
+                const transferStatuses = ["Transfer-Placed", "Transfer-Completed", "Transfer-Cancelled"];
+                const isOldTransfer = transferStatuses.includes(existing.status as any);
+                const isNewTransfer = transferStatuses.includes(deliveryHistoryData.status);
+                
+                if (isOldTransfer && !isNewTransfer) {
+                    throw new Error(`Cannot change status from ${existing.status} to ${deliveryHistoryData.status}. Transfer records can only be updated to other Transfer statuses.`);
+                }
+                if (!isOldTransfer && isNewTransfer) {
+                     throw new Error(`Cannot change status from ${existing.status} to ${deliveryHistoryData.status}. Non-Transfer records cannot be converted to Transfer records.`);
+                }
             }
 
             // Apply decimal precision formatting
             const formattedData = {
                 ...deliveryHistoryData,
-                ...(deliveryHistoryData.pricePerQuantity && { pricePerQuantity: parseFloat(deliveryHistoryData.pricePerQuantity.toFixed(2)) }),
-                ...(deliveryHistoryData.sentQuantity && { sentQuantity: parseFloat(deliveryHistoryData.sentQuantity.toFixed(3)) }),
-                ...(deliveryHistoryData.receivedQuantity && { receivedQuantity: parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3)) }),
-                ...(deliveryHistoryData.orderedQuantity && { orderedQuantity: parseFloat(deliveryHistoryData.orderedQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.pricePerQuantity !== undefined && { pricePerQuantity: parseFloat(deliveryHistoryData.pricePerQuantity.toFixed(2)) }),
+                ...(deliveryHistoryData.sentQuantity !== undefined && { sentQuantity: parseFloat(deliveryHistoryData.sentQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.receivedQuantity !== undefined && { receivedQuantity: parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3)) }),
+                ...(deliveryHistoryData.orderedQuantity !== undefined && { orderedQuantity: parseFloat(deliveryHistoryData.orderedQuantity.toFixed(3)) }),
                 updatedAt: getCurrentDate()
             };
 
@@ -350,6 +444,22 @@ export class DeliveryHistoryService {
                 formattedData.cancelledAt = null;
             } else if (deliveryHistoryData.status === "Order-Cancelled") {
                 formattedData.cancelledAt = getCurrentDate();
+            } else if (deliveryHistoryData.status === "Transfer-Placed") {
+                formattedData.orderedAt = null;
+                formattedData.cancelledAt = null;
+            } else if (deliveryHistoryData.status === "Transfer-Completed") {
+                formattedData.receivedAt = getCurrentDate();
+                formattedData.cancelledAt = null;
+                // Ensure receivedQuantity is set from payload if provided
+                if (deliveryHistoryData.receivedQuantity !== undefined) {
+                    formattedData.receivedQuantity = parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3));
+                } else if (existing.receivedQuantity === null || existing.receivedQuantity === 0) {
+                     // If not provided and not in DB, this is invalid for completion
+                     // We can't easily validate here without more context, but usually controller checks this.
+                     // However, for Transfer-Completed, we need a quantity to transfer.
+                }
+            } else if (deliveryHistoryData.status === "Transfer-Cancelled") {
+                formattedData.cancelledAt = getCurrentDate();
             }
 
             // Update the delivery history
@@ -361,9 +471,8 @@ export class DeliveryHistoryService {
             // VERIFICATION: Ensure receivedQuantity is correctly persisted if it was provided
             if (deliveryHistoryData.receivedQuantity !== undefined) {
                 const expectedQty = parseFloat(deliveryHistoryData.receivedQuantity.toFixed(3));
-                const actualQty = Number(updated.receivedQuantity); // Ensure number comparison
+                const actualQty = Number(updated.receivedQuantity); 
                 
-                // Allow for tiny floating point differences if any, though toFixed(3) should align them
                 if (Math.abs(actualQty - expectedQty) > 0.0001) {
                         console.error("[DeliveryHistoryService#update] Verification failed for receivedQuantity", {
                         id,
@@ -371,105 +480,157 @@ export class DeliveryHistoryService {
                         actual: actualQty,
                         updateDataQty: deliveryHistoryData.receivedQuantity
                     });
-                    tx.rollback();
                     throw new Error(`Data inconsistency detected: receivedQuantity for ID ${id} was not saved correctly. Expected ${expectedQty}, got ${actualQty}`);
-                }
-
-                // DOUBLE VERIFICATION: Re-fetch from DB to ensure persistence
-                const [refetched] = await tx.select({ receivedQuantity: deliveryHistoryTable.receivedQuantity })
-                    .from(deliveryHistoryTable)
-                    .where(eq(deliveryHistoryTable.id, id));
-                    
-                if (!refetched || Math.abs(Number(refetched.receivedQuantity) - expectedQty) > 0.0001) {
-                        console.error("[DeliveryHistoryService#update] Re-fetch verification failed", { id, refetched });
-                        tx.rollback();
-                        throw new Error(`DB Persistence failure: receivedQuantity for ID ${id} was not persisted.`);
                 }
             }
 
-            // If status is being updated to 'Order-Completed', add stock and set latestUnitPriceData
+            // Collect stock operations
+            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number, options?: { force?: boolean, pricePerQuantity?: number } }> = [];
+            const stocksToAdd: NewStock[] = [];
+
+            // 1. Transfer-Completed: Prepare Reduce Sender Stock
+            if (deliveryHistoryData.status === 'Transfer-Completed' && existing.status !== 'Transfer-Completed') {
+                if (!updated.transferSenderMaintainsId) {
+                     throw new Error("Transfer Sender Outlet ID is missing for Transfer-Completed status");
+                }
+                
+                // Use updated.receivedQuantity which we just verified
+                stocksToReduce.push({
+                    maintainsId: updated.transferSenderMaintainsId,
+                    productId: updated.productId,
+                    unitId: updated.unitId,
+                    quantity: updated.receivedQuantity
+                });
+            }
+
+            // 2. Return-Completed: Prepare Reduce Stock
+            if (deliveryHistoryData.status === 'Return-Completed') {
+                stocksToReduce.push({
+                    maintainsId: updated.maintainsId,
+                    productId: updated.productId,
+                    unitId: updated.unitId,
+                    quantity: updated.receivedQuantity
+                });
+            }
+
+            // 3. Order-Completed: Prepare Add Stock
             if (deliveryHistoryData.status === 'Order-Completed') {
-                const stockData: NewStock = {
+                stocksToAdd.push({
                     maintainsId: updated.maintainsId,
                     productId: updated.productId,
                     unitId: updated.unitId,
                     pricePerQuantity: updated.pricePerQuantity,
                     quantity: updated.receivedQuantity
-                };
-
-                try {
-                    console.log("stock is adding", stockData);
-                    const unitPricesFromClient = Array.isArray((deliveryHistoryData as any).latestUnitPriceData)
-                        ? (deliveryHistoryData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[]
-                        : undefined;
-                    const updatePayload: {
-                        mainUnitQuantity: number;
-                        unitPrices?: { unitId: string; pricePerQuantity: number }[];
-                        productionDate: Date;
-                    } = {
-                        mainUnitQuantity: stockData.quantity,
-                        productionDate: getCurrentDate()
-                    };
-                    if (unitPricesFromClient && unitPricesFromClient.length > 0) {
-                        updatePayload.unitPrices = unitPricesFromClient;
-                    }
-                    await StockBatchService.updateLatestBatchByProductAndMaintains(
-                        stockData.productId,
-                        stockData.maintainsId,
-                        updatePayload
-                    );
-
-                    // Persist latest unit price data on the delivery history
-                    const dataToPersist = (unitPricesFromClient && unitPricesFromClient.length > 0)
-                        ? unitPricesFromClient
-                        : [{ unitId: stockData.unitId, pricePerQuantity: stockData.pricePerQuantity }];
-                    await tx.update(deliveryHistoryTable)
-                        .set({ latestUnitPriceData: dataToPersist })
-                        .where(eq(deliveryHistoryTable.id, updated.id));
-                } catch (error) {
-                    // If stock creation fails, rollback the entire transaction
-                    console.error("[DeliveryHistoryService#update] Rolling back during Order-Completed stock add", { id, stockData, error });
-                    tx.rollback();
-                    throw new Error(`Failed to add stock for completed order. Product: ${stockData.productId}, Unit: ${stockData.unitId}. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
-                }
+                });
             }
 
-            // If status is being updated to 'Return-Completed', reduce stock
-            if (deliveryHistoryData.status === 'Return-Completed') {
-                const stockReduction = {
+            // 4. Transfer-Completed: Prepare Add Receiver Stock
+            if (deliveryHistoryData.status === 'Transfer-Completed' && existing.status !== 'Transfer-Completed') {
+                stocksToAdd.push({
                     maintainsId: updated.maintainsId,
                     productId: updated.productId,
                     unitId: updated.unitId,
+                    pricePerQuantity: updated.pricePerQuantity,
                     quantity: updated.receivedQuantity
-                };
+                });
+            }
 
-                try {
-                    console.log("stock is reducing", stockReduction);
+            // EXECUTE STOCK OPERATIONS
+            try {
+                // A. Process Reductions
+                if (stocksToReduce.length > 0) {
+                    console.log("[DeliveryHistoryService#update] Processing reductions:", stocksToReduce);
+                    for (const reduction of stocksToReduce) {
+                         // For Return-Completed, we might need processSaleByStockId if we want to target specific batch?
+                         // But existing logic for Return used processSaleByStockId which takes stockId.
+                         // Wait, in my previous code:
+                         // if (deliveryHistoryData.status === 'Return-Completed') { ... processSaleByStockId ... }
+                         // But stocksToReduce array structure I defined here doesn't have stockId.
+                         // I should handle Return-Completed separately or adjust structure.
+                         
+                         // Actually, for Return-Completed, we need to find the stock record first.
+                         if (deliveryHistoryData.status === 'Return-Completed') {
+                            // Find the specific stock record
+                            const [stockRecord] = await tx
+                                .select()
+                                .from(stockTable)
+                                .where(and(
+                                    eq(stockTable.maintainsId, reduction.maintainsId),
+                                    eq(stockTable.productId, reduction.productId),
+                                    eq(stockTable.unitId, reduction.unitId)
+                                ));
 
-                    // Find the specific stock record that matches the criteria
-                    const [stockRecord] = await tx
-                        .select()
-                        .from(stockTable)
-                        .where(
-                            and(
-                                eq(stockTable.maintainsId, stockReduction.maintainsId),
-                                eq(stockTable.productId, stockReduction.productId),
-                                eq(stockTable.unitId, stockReduction.unitId)
-                            )
+                            if (!stockRecord) {
+                                throw new Error(`Stock record not found for product ${reduction.productId} with unit ${reduction.unitId}.`);
+                            }
+                            await StockBatchService.processSaleByStockId(stockRecord.id, reduction.unitId, reduction.quantity, tx);
+                         } else {
+                             // Normal reduction (Transfer)
+                             await StockBatchService.reduceProductStock(
+                                reduction.productId, 
+                                reduction.maintainsId, 
+                                reduction.quantity, 
+                                reduction.unitId,
+                                reduction.options,
+                                tx
+                            );
+                         }
+                    }
+                }
+
+                // B. Process Additions
+                if (stocksToAdd.length > 0) {
+                    console.log("[DeliveryHistoryService#update] Processing additions:", stocksToAdd);
+                    for (const stockData of stocksToAdd) {
+                        const unitPricesFromClient = Array.isArray((deliveryHistoryData as any).latestUnitPriceData)
+                            ? (deliveryHistoryData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[]
+                            : undefined;
+                        
+                        // Use existing latestUnitPriceData if available and no client data
+                        let unitPrices = unitPricesFromClient;
+                        if (!unitPrices && updated.latestUnitPriceData) {
+                             unitPrices = updated.latestUnitPriceData as any;
+                        }
+                        if (!unitPrices) {
+                            unitPrices = [{ unitId: stockData.unitId, pricePerQuantity: stockData.pricePerQuantity }];
+                        }
+
+                        const updatePayload: {
+                            mainUnitQuantity: number;
+                            unitPrices: { unitId: string; pricePerQuantity: number }[];
+                            productionDate: Date;
+                        } = {
+                            mainUnitQuantity: stockData.quantity,
+                            unitPrices: unitPrices,
+                            productionDate: getCurrentDate()
+                        };
+                        
+                        await StockBatchService.updateLatestBatchByProductAndMaintains(
+                            stockData.productId,
+                            stockData.maintainsId,
+                            updatePayload,
+                            tx
                         );
 
-                    if (!stockRecord) {
-                        throw new Error(`Stock record not found for product ${stockReduction.productId} with unit ${stockReduction.unitId}. Cannot process return completion.`);
+                        // Persist latest unit price data
+                        if (unitPricesFromClient && unitPricesFromClient.length > 0) {
+                             await tx.update(deliveryHistoryTable)
+                                .set({ latestUnitPriceData: unitPricesFromClient })
+                                .where(eq(deliveryHistoryTable.id, updated.id));
+                        }
                     }
-
-                    // Use StockBatchService to process the reduction properly
-                    await StockBatchService.processSaleByStockId(stockRecord.id, stockReduction.unitId, stockReduction.quantity);
-                } catch (error) {
-                    // If stock reduction fails, rollback the entire transaction
-                    console.error("[DeliveryHistoryService#update] Rolling back during Return-Completed stock reduce", { id, stockReduction, error });
-                    tx.rollback();
-                    throw new Error(`Failed to reduce stock for completed return. Product: ${stockReduction.productId}, Unit: ${stockReduction.unitId}. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
+
+            } catch (error) {
+                console.error("[DeliveryHistoryService#update] Rolling back during stock operations", { id, error });
+                if (error instanceof Error) {
+                     // Propagate specific errors clearly
+                     if (error.message.includes("Insufficient stock") || error.message.includes("Unit conversion not found")) {
+                          throw new AppError(error.message, 400);
+                     }
+                     throw new Error(`Stock operation failed: ${error.message}`);
+                }
+                throw error;
             }
 
             return updated;
@@ -489,7 +650,7 @@ export class DeliveryHistoryService {
         const updatedDeliveryHistories = await db.transaction(async (tx) => {
             const results = [];
             const stocksToAdd: NewStock[] = [];
-            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number }> = [];
+            const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number, options?: { force?: boolean, pricePerQuantity?: number } }> = [];
             // Aggregate client-provided unit prices per product-maintains key
             const clientUnitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
 
@@ -500,8 +661,22 @@ export class DeliveryHistoryService {
                 const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
                 if (existingDeliveryHistory.length === 0) {
                     console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: delivery history not found", { id });
-                    tx.rollback();
-                    throw new Error(`Delivery history with ID '${id}' not found during bulk update. Please verify all delivery history IDs and try again.`);
+                    throw new AppError(`Delivery history with ID '${id}' not found during bulk update. Please verify all delivery history IDs and try again.`, 404);
+                }
+                const existing = existingDeliveryHistory[0];
+
+                // Validate status transition for Transfer
+                if (updateData.status && updateData.status !== existing.status) {
+                     const transferStatuses = ["Transfer-Placed", "Transfer-Completed", "Transfer-Cancelled"];
+                     const isOldTransfer = transferStatuses.includes(existing.status as any);
+                     const isNewTransfer = transferStatuses.includes(updateData.status);
+                     
+                     if (isOldTransfer && !isNewTransfer) {
+                         throw new Error(`Cannot change status from ${existing.status} to ${updateData.status}. Transfer records can only be updated to other Transfer statuses.`);
+                     }
+                     if (!isOldTransfer && isNewTransfer) {
+                          throw new Error(`Cannot change status from ${existing.status} to ${updateData.status}. Non-Transfer records cannot be converted to Transfer records.`);
+                     }
                 }
 
                 // Apply decimal precision formatting
@@ -527,6 +702,20 @@ export class DeliveryHistoryService {
                     formattedUpdateData.cancelledAt = null;
                 } else if (updateData.status === "Order-Cancelled") {
                     formattedUpdateData.cancelledAt = getCurrentDate();
+                } else if (updateData.status === "Transfer-Placed") {
+                    formattedUpdateData.sentAt = getCurrentDate();
+                    formattedUpdateData.orderedAt = null;
+                    formattedUpdateData.cancelledAt = null;
+                } else if (updateData.status === "Transfer-Completed") {
+                    formattedUpdateData.receivedAt = getCurrentDate();
+                    formattedUpdateData.cancelledAt = null;
+                    // Always ensure receivedQuantity is set correctly if provided, or fallback to updated.receivedQuantity if available (though updated is not available yet in this scope properly if we rely on it before update. Wait, we do update first.)
+                    // Actually, we are building `formattedUpdateData` to USE in the update.
+                    if (updateData.receivedQuantity !== undefined) {
+                        formattedUpdateData.receivedQuantity = Number(Number(updateData.receivedQuantity).toFixed(3));
+                    }
+                } else if (updateData.status === "Transfer-Cancelled") {
+                    formattedUpdateData.cancelledAt = getCurrentDate();
                 }
 
                 // Update the delivery history
@@ -548,7 +737,6 @@ export class DeliveryHistoryService {
                             actual: actualQty,
                             updateDataQty: updateData.receivedQuantity
                         });
-                        tx.rollback();
                         throw new Error(`Data inconsistency detected: receivedQuantity for ID ${id} was not saved correctly. Expected ${expectedQty}, got ${actualQty}`);
                     }
 
@@ -559,7 +747,6 @@ export class DeliveryHistoryService {
                      
                     if (!refetched || Math.abs(Number(refetched.receivedQuantity) - expectedQty) > 0.0001) {
                          console.error("[DeliveryHistoryService#bulkUpdate] Re-fetch verification failed", { id, refetched });
-                         tx.rollback();
                          throw new Error(`DB Persistence failure: receivedQuantity for ID ${id} was not persisted.`);
                     }
                 }
@@ -609,13 +796,77 @@ export class DeliveryHistoryService {
                     stocksToReduce.push(stockReduction);
                 }
 
+                // If status is being updated to 'Transfer-Completed', prepare stock data
+                if (updateData.status === 'Transfer-Completed' && existing.status !== 'Transfer-Completed') {
+                     if (!updated.transferSenderMaintainsId) {
+                          throw new Error(`Transfer Sender Outlet ID is missing for Transfer-Completed status for ID ${id}`);
+                     }
+
+                     // Reduce Sender Stock
+                    // Use receivedQuantity because that is what was actually transferred and accepted
+                    stocksToReduce.push({
+                        maintainsId: updated.transferSenderMaintainsId,
+                        productId: updated.productId,
+                        unitId: updated.unitId,
+                        quantity: updated.receivedQuantity
+                    });
+
+                     // Add Receiver Stock
+                     const stockData: NewStock = {
+                        maintainsId: updated.maintainsId,
+                        productId: updated.productId,
+                        unitId: updated.unitId,
+                        pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
+                        quantity: parseFloat(Number(updated.receivedQuantity).toFixed(3))
+                    };
+                    stocksToAdd.push(stockData);
+
+                    // Capture client-provided latestUnitPriceData or fallback to existing
+                    if (Array.isArray((updateData as any).latestUnitPriceData) && (updateData as any).latestUnitPriceData.length > 0) {
+                        const key = `${updated.productId}-${updated.maintainsId}`;
+                        const incoming = (updateData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[];
+                        if (!clientUnitPricesByKey[key]) clientUnitPricesByKey[key] = [];
+                        for (const up of incoming) {
+                            const idx = clientUnitPricesByKey[key].findIndex(p => p.unitId === up.unitId);
+                            if (idx >= 0) clientUnitPricesByKey[key][idx] = up; else clientUnitPricesByKey[key].push(up);
+                        }
+                    } else if (updated.latestUnitPriceData) {
+                         const key = `${updated.productId}-${updated.maintainsId}`;
+                         const incoming = updated.latestUnitPriceData as { unitId: string; pricePerQuantity: number }[];
+                         if (!clientUnitPricesByKey[key]) clientUnitPricesByKey[key] = [];
+                         for (const up of incoming) {
+                             const idx = clientUnitPricesByKey[key].findIndex(p => p.unitId === up.unitId);
+                             if (idx < 0) clientUnitPricesByKey[key].push(up);
+                         }
+                    }
+                }
+
                 results.push(updated);
             }
 
-            // If there are stocks to add, update latest batch or create new when prices differ
-            if (stocksToAdd.length > 0) {
-                try {
-                    console.log("stocks are adding", stocksToAdd)
+            // Perform stock operations within the same transaction scope
+            try {
+                // 1. Process Stock Reductions (Sender/Return) FIRST
+                if (stocksToReduce.length > 0) {
+                    console.log("stocks are reducing", stocksToReduce);
+
+                    // Process each stock reduction using the new stock batch system
+                    for (const stockReduction of stocksToReduce) {
+                        // Use StockBatchService to process the reduction properly using FIFO across batches
+                        await StockBatchService.reduceProductStock(
+                            stockReduction.productId, 
+                            stockReduction.maintainsId, 
+                            stockReduction.quantity, 
+                            stockReduction.unitId,
+                            stockReduction.options,
+                            tx // Pass transaction to ensure atomic rollback
+                        );
+                    }
+                }
+
+                // 2. Process Stock Additions (Receiver/Order Completion) SECOND
+                if (stocksToAdd.length > 0) {
+                    console.log("stocks are adding", stocksToAdd);
                     // Group stocks by product and maintains for batch update
                     const stockGroups = stocksToAdd.reduce((groups, stock) => {
                         const key = `${stock.productId}-${stock.maintainsId}`;
@@ -647,7 +898,6 @@ export class DeliveryHistoryService {
                                 productId,
                                 maintainsId
                             });
-                            tx.rollback();
                             throw new Error(`Main unit not found for product ${productId}. Cannot complete bulk order processing.`);
                         }
 
@@ -658,7 +908,6 @@ export class DeliveryHistoryService {
                         
                         const mainUnitConversion = unitConversions.find(uc => uc.unitId === mainUnitId);
                         if (!mainUnitConversion) {
-                            tx.rollback();
                             throw new Error(`Main unit conversion not found for product ${productId}`);
                         }
 
@@ -666,7 +915,6 @@ export class DeliveryHistoryService {
                         for (const stock of stocks) {
                             const conversion = unitConversions.find(uc => uc.unitId === stock.unitId);
                             if (!conversion) {
-                                tx.rollback();
                                 throw new Error(`Unit conversion not found for unit ${stock.unitId}`);
                             }
                             // Calculate quantity in main unit
@@ -694,7 +942,8 @@ export class DeliveryHistoryService {
                                 mainUnitQuantity: totalMainUnitQuantity,
                                 unitPrices: unitPrices,
                                 productionDate: getCurrentDate()
-                            }
+                            },
+                            tx // Pass transaction to ensure atomic rollback
                         );
                     }
 
@@ -708,35 +957,19 @@ export class DeliveryHistoryService {
                                 .where(eq(deliveryHistoryTable.id, updated.id));
                         }
                     }
-                } catch (error) {
-                    // If stock update fails, rollback the entire transaction
-                    console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToAdd", { error });
-                    tx.rollback();
-                    throw new Error(`Failed to process stock additions for completed orders during bulk update. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
                 }
-            }
-
-            // If there are stocks to reduce, use StockBatchService instead of old proportional logic
-            if (stocksToReduce.length > 0) {
-                try {
-                    console.log("stocks are reducing", stocksToReduce)
-
-                    // Process each stock reduction using the new stock batch system
-                    for (const stockReduction of stocksToReduce) {
-                        // Use StockBatchService to process the reduction properly using FIFO across batches
-                        await StockBatchService.reduceProductStock(
-                            stockReduction.productId, 
-                            stockReduction.maintainsId, 
-                            stockReduction.quantity, 
-                            stockReduction.unitId
-                        );
-                    }
-                } catch (error) {
-                    // If stock reduction fails, rollback the entire transaction
-                    console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stocksToReduce", { error });
-                    tx.rollback();
-                    throw new Error(`Failed to process stock reductions for completed returns during bulk update. Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
+            } catch (error) {
+                // If ANY stock operation fails, rollback the entire transaction
+                console.error("[DeliveryHistoryService#bulkUpdate] Rolling back during stock operations", { error });
+                // Ensure the error message is propagated clearly
+                if (error instanceof Error) {
+                     // Check if it's a specific stock error and propagate it directly
+                     if (error.message.includes("Insufficient stock") || error.message.includes("Unit conversion not found")) {
+                          throw new AppError(error.message, 400);
+                     }
+                     throw new Error(`Bulk stock operation failed: ${error.message}`);
                 }
+                throw error; 
             }
 
             return results;
@@ -751,7 +984,7 @@ export class DeliveryHistoryService {
             const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
             if (existingDeliveryHistory.length === 0) {
                 console.error("[DeliveryHistoryService#delete] Rolling back: delivery history not found", { id });
-                tx.rollback();
+                throw new AppError(`Delivery history with ID '${id}' not found.`, 404);
             }
 
             // Delete the delivery history

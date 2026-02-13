@@ -13,7 +13,10 @@ export const DeliveryStatus = pgEnum("delivery_status", [
     "Return-Completed",
     "Return-Cancelled",
     "Reset-Requested",
-    "Reset-Completed"
+    "Reset-Completed",
+    "Transfer-Placed",
+    "Transfer-Completed",
+    "Transfer-Cancelled"
 ])
 export const deliveryHistoryTable = pgTable("delivery_history", {
     id: uuid('id').defaultRandom().primaryKey(),
@@ -22,6 +25,7 @@ export const deliveryHistoryTable = pgTable("delivery_history", {
     createdBy: uuid('created_by').references(() => userTable.id).notNull(),
     status: DeliveryStatus('status').default("Order-Shipped"),
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
+    transferSenderMaintainsId: uuid('transfer_sender_maintains_id').references(() => maintainsTable.id),
     unitId: uuid('unit_id').references(() => unitTable.id).notNull(),
     productId: uuid('product_id').references(() => productTable.id, { onDelete: 'set null' }),
     pricePerQuantity: numeric('price_per_quantity', { mode: 'number', scale: 2 }).notNull(),

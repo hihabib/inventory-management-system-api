@@ -47,6 +47,16 @@ export class DeliveryHistoryController {
                 return sendResponse(res, 400, 'sent quantity is required for Reset-Completed or Reset-Requested status', null);
             }
 
+            // Check if transferSenderMaintainsId is provided for Transfer statuses
+            if ((item.status === "Transfer-Placed" || item.status === "Transfer-Completed" || item.status === "Transfer-Cancelled") && !item.transferSenderMaintainsId) {
+                return sendResponse(res, 400, 'transferSenderMaintainsId is required for Transfer statuses', null);
+            }
+
+            // Check if sentQuantity is provided for Transfer-Placed status
+            if (item.status === "Transfer-Placed" && !item.sentQuantity) {
+                return sendResponse(res, 400, 'Sent quantity is required for Transfer-Placed status', null);
+            }
+
 
             dataWithCreatedBy.push({
                 ...item,
