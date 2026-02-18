@@ -1088,44 +1088,11 @@ export class StockBatchService {
                 await StockBatchService.processSaleByBatchAndUnit(
                     item.stockBatchId,
                     item.unitId,
-                    item.quantity
-                    // tx is implicitly handled because processSaleByBatchAndUnit creates its own transaction 
-                    // BUT wait, processSaleByBatchAndUnit doesn't accept txArg!
-                    // I need to refactor processSaleByBatchAndUnit to accept txArg.
+                    item.quantity,
+                    tx
                 );
             }
         };
-        
-        // Refactoring processSaleByBatchAndUnit to accept txArg is required.
-        // For now, I'll inline the logic or assume I will fix processSaleByBatchAndUnit next.
-        // Actually, I should fix processSaleByBatchAndUnit first.
-        
-        // Let's assume I fix processSaleByBatchAndUnit to take txArg.
-        // But I cannot call it with txArg yet because I haven't modified it.
-        
-        // I will duplicate the logic slightly or use a private helper?
-        // Better: I will modify processSaleByBatchAndUnit in a separate tool call or use SearchReplace to update it.
-        
-        // For now, let's look at `processSaleByBatchAndUnit` implementation again.
-        // It wraps in db.transaction. I need to change that.
-        
-        // I will implement processMultiBatchSale to iterate and call the logic directly or call the refactored method.
-        // Since I'm in the middle of editing, I can't refactor another method easily in the same block if they are far apart.
-        
-        // I will implement `processMultiBatchSale` here, but I must ensure `processSaleByBatchAndUnit` supports tx.
-        // I will add a TODO to refactor `processSaleByBatchAndUnit`.
-        
-        // Actually, `processSaleByBatchAndUnit` is just above. I can verify.
-        // It is lines 427-531. It does NOT take txArg.
-        
-        // So I will implement `processMultiBatchSale` by manually calling the logic (or I should refactor `processSaleByBatchAndUnit` first).
-        // I'll choose to Refactor `processSaleByBatchAndUnit` in a separate step.
-        // But `processMultiBatchSale` needs to work NOW.
-        
-        // I will copy the logic of `processSaleByBatchAndUnit` into a private helper `runSaleProcess` and make both use it?
-        // Or just implement `processMultiBatchSale` calling `runSaleProcess`.
-        
-        // Let's implement `processMultiBatchSale` to iterate and call a helper.
         
         if (txArg) {
              return await runProcess(txArg);

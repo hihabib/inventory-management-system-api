@@ -60,6 +60,30 @@ export class SaleService {
     static async createSale(saleData: SaleRequest, userId: string) {
         return await db.transaction(async (tx) => {
             try {
+                const insufficientProducts: string[] = [];
+                for (const product of saleData.products) {
+                    const stocks = await tx
+                        .select({
+                            quantity: stockTable.quantity
+                        })
+                        .from(stockTable)
+                        .innerJoin(stockBatchTable, eq(stockTable.stockBatchId, stockBatchTable.id))
+                        .where(and(
+                            eq(stockTable.productId, product.productId),
+                            eq(stockTable.maintainsId, saleData.maintainsId),
+                            eq(stockTable.unitId, product.unitId),
+                            eq(stockBatchTable.deleted, false)
+                        ));
+                    const totalAvailable = stocks.reduce((sum, row) => sum + Number(row.quantity), 0);
+                    if (totalAvailable + 0.0001 < Number(product.quantity)) {
+                        if (!insufficientProducts.includes(product.productName)) {
+                            insufficientProducts.push(product.productName);
+                        }
+                    }
+                }
+                if (insufficientProducts.length > 0) {
+                    throw new Error(`${insufficientProducts.join(", ")} is not enough in stocks to be sold.`);
+                }
                 // First, process the multi-batch sale to reduce stock quantities
                 const saleItems = saleData.products.map(product => ({
                     stockBatchId: product.stockBatchId,

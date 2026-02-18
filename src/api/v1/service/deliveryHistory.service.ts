@@ -649,7 +649,7 @@ export class DeliveryHistoryService {
     }>>) {
         const updatedDeliveryHistories = await db.transaction(async (tx) => {
             const results = [];
-            const stocksToAdd: NewStock[] = [];
+            const stocksToAdd: (NewStock & { sourceStatus?: string })[] = [];
             const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number, options?: { force?: boolean, pricePerQuantity?: number } }> = [];
             // Aggregate client-provided unit prices per product-maintains key
             const clientUnitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
@@ -764,12 +764,13 @@ export class DeliveryHistoryService {
                          console.warn("[DeliveryHistoryService#bulkUpdate] Warning: Completing order with 0 or missing receivedQuantity", { id, receivedQty });
                     }
 
-                    const stockData: NewStock = {
+                    const stockData: NewStock & { sourceStatus?: string } = {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
                         unitId: updated.unitId,
                         pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
-                        quantity: parseFloat(Number(receivedQty).toFixed(3))
+                        quantity: parseFloat(Number(receivedQty).toFixed(3)),
+                        sourceStatus: 'Order-Completed'
                     };
                     stocksToAdd.push(stockData);
                     // Capture client-provided latestUnitPriceData for this record
@@ -812,12 +813,13 @@ export class DeliveryHistoryService {
                     });
 
                      // Add Receiver Stock
-                     const stockData: NewStock = {
+                     const stockData: NewStock & { sourceStatus?: string } = {
                         maintainsId: updated.maintainsId,
                         productId: updated.productId,
                         unitId: updated.unitId,
                         pricePerQuantity: parseFloat(updated.pricePerQuantity.toFixed(2)),
-                        quantity: parseFloat(Number(updated.receivedQuantity).toFixed(3))
+                        quantity: parseFloat(Number(updated.receivedQuantity).toFixed(3)),
+                        sourceStatus: 'Transfer-Completed'
                     };
                     stocksToAdd.push(stockData);
 
@@ -867,25 +869,25 @@ export class DeliveryHistoryService {
                 // 2. Process Stock Additions (Receiver/Order Completion) SECOND
                 if (stocksToAdd.length > 0) {
                     console.log("stocks are adding", stocksToAdd);
-                    // Group stocks by product and maintains for batch update
-                    const stockGroups = stocksToAdd.reduce((groups, stock) => {
+
+                    const transferStocks = stocksToAdd.filter(s => s.sourceStatus === 'Transfer-Completed');
+                    const orderStocks = stocksToAdd.filter(s => s.sourceStatus !== 'Transfer-Completed');
+
+                    const stockGroups = orderStocks.reduce((groups, stock) => {
                         const key = `${stock.productId}-${stock.maintainsId}`;
                         if (!groups[key]) {
                             groups[key] = [];
                         }
                         groups[key].push(stock);
                         return groups;
-                    }, {} as Record<string, NewStock[]>);
+                    }, {} as Record<string, (NewStock & { sourceStatus?: string })[]>);
 
-                    // Track unit prices used per group for latestUnitPriceData
                     const unitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
 
-                    // Update latest batch for each product-maintains combination
                     for (const [key, stocks] of Object.entries(stockGroups)) {
                         const productId = stocks[0].productId;
                         const maintainsId = stocks[0].maintainsId;
 
-                        // Resolve product's main unit and select matching stock as main unit reference
                         const [productRow] = await tx
                             .select({ mainUnitId: productTable.mainUnitId })
                             .from(productTable)
@@ -901,7 +903,6 @@ export class DeliveryHistoryService {
                             throw new Error(`Main unit not found for product ${productId}. Cannot complete bulk order processing.`);
                         }
 
-                        // Get unit conversions to calculate total quantity in main unit
                         const unitConversions = await tx.select()
                             .from(unitConversionTable)
                             .where(eq(unitConversionTable.productId, productId));
@@ -917,15 +918,12 @@ export class DeliveryHistoryService {
                             if (!conversion) {
                                 throw new Error(`Unit conversion not found for unit ${stock.unitId}`);
                             }
-                            // Calculate quantity in main unit
                             const quantityInMain = stock.quantity * (conversion.conversionFactor / mainUnitConversion.conversionFactor);
                             totalMainUnitQuantity += quantityInMain;
                         }
 
-                        // Round to 3 decimals to avoid floating point errors
                         totalMainUnitQuantity = Number(totalMainUnitQuantity.toFixed(3));
 
-                        // Collect unit prices: prefer client-provided latestUnitPriceData for this key
                         const clientUnitPrices = clientUnitPricesByKey[key];
                         const unitPrices = Array.isArray(clientUnitPrices) && clientUnitPrices.length > 0
                             ? clientUnitPrices
@@ -943,11 +941,10 @@ export class DeliveryHistoryService {
                                 unitPrices: unitPrices,
                                 productionDate: getCurrentDate()
                             },
-                            tx // Pass transaction to ensure atomic rollback
+                            tx
                         );
                     }
 
-                    // Update latestUnitPriceData for updated Order-Completed records
                     for (const updated of results) {
                         if (updated.status === 'Order-Completed') {
                             const key = `${updated.productId}-${updated.maintainsId}`;
@@ -955,6 +952,159 @@ export class DeliveryHistoryService {
                             await tx.update(deliveryHistoryTable)
                                 .set({ latestUnitPriceData: data })
                                 .where(eq(deliveryHistoryTable.id, updated.id));
+                        }
+                    }
+
+                    if (transferStocks.length > 0) {
+                        for (const stock of transferStocks) {
+                            const productId = stock.productId!;
+                            const maintainsId = stock.maintainsId!;
+
+                            const [productRow] = await tx
+                                .select({ mainUnitId: productTable.mainUnitId })
+                                .from(productTable)
+                                .where(eq(productTable.id, productId));
+                            const mainUnitId = productRow?.mainUnitId;
+
+                            if (!mainUnitId) {
+                                console.error("[DeliveryHistoryService#bulkUpdate] Rolling back: main unit not found for transfer", {
+                                    productId,
+                                    maintainsId
+                                });
+                                throw new Error(`Main unit not found for product ${productId}. Cannot complete transfer processing.`);
+                            }
+
+                            const unitConversions = await tx.select()
+                                .from(unitConversionTable)
+                                .where(eq(unitConversionTable.productId, productId));
+
+                            const mainUnitConversion = unitConversions.find(uc => uc.unitId === mainUnitId);
+                            if (!mainUnitConversion) {
+                                throw new Error(`Main unit conversion not found for product ${productId}`);
+                            }
+
+                            const stockUnitConversion = unitConversions.find(uc => uc.unitId === stock.unitId);
+                            if (!stockUnitConversion) {
+                                throw new Error(`Unit conversion not found for unit ${stock.unitId}`);
+                            }
+
+                            const quantityInMain = Number(
+                                (stock.quantity * (stockUnitConversion.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(3)
+                            );
+
+                            const key = `${productId}-${maintainsId}`;
+                            const clientUnitPrices = clientUnitPricesByKey[key];
+                            const baseUnitPrices = Array.isArray(clientUnitPrices) && clientUnitPrices.length > 0
+                                ? clientUnitPrices
+                                : [{ unitId: stock.unitId, pricePerQuantity: stock.pricePerQuantity }];
+
+                            let mainUnitPriceEntry = baseUnitPrices.find(p => p.unitId === mainUnitId);
+                            let mainUnitPrice: number;
+
+                            if (mainUnitPriceEntry) {
+                                mainUnitPrice = Number(mainUnitPriceEntry.pricePerQuantity.toFixed(2));
+                            } else {
+                                if (stock.unitId === mainUnitId) {
+                                    mainUnitPrice = Number(stock.pricePerQuantity.toFixed(2));
+                                } else {
+                                    mainUnitPrice = Number(
+                                        (stock.pricePerQuantity * (stockUnitConversion.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(2)
+                                    );
+                                }
+                                baseUnitPrices.push({ unitId: mainUnitId, pricePerQuantity: mainUnitPrice });
+                            }
+
+                            const completeUnitPrices: { unitId: string; pricePerQuantity: number }[] = [];
+                            for (const uc of unitConversions) {
+                                const existing = baseUnitPrices.find(p => p.unitId === uc.unitId);
+                                if (existing) {
+                                    completeUnitPrices.push({
+                                        unitId: uc.unitId,
+                                        pricePerQuantity: Number(existing.pricePerQuantity.toFixed(2))
+                                    });
+                                } else {
+                                    const derivedPrice = Number(
+                                        (mainUnitPrice * (mainUnitConversion.conversionFactor / uc.conversionFactor)).toFixed(2)
+                                    );
+                                    completeUnitPrices.push({
+                                        unitId: uc.unitId,
+                                        pricePerQuantity: derivedPrice
+                                    });
+                                }
+                            }
+
+                            const existingBatches = await tx
+                                .select({
+                                    id: stockBatchTable.id,
+                                    createdAt: stockBatchTable.createdAt,
+                                    mainUnitPrice: stockTable.pricePerQuantity
+                                })
+                                .from(stockBatchTable)
+                                .innerJoin(stockTable, and(
+                                    eq(stockTable.stockBatchId, stockBatchTable.id),
+                                    eq(stockTable.productId, productId),
+                                    eq(stockTable.unitId, mainUnitId)
+                                ))
+                                .where(and(
+                                    eq(stockBatchTable.productId, productId),
+                                    eq(stockBatchTable.maintainsId, maintainsId),
+                                    eq(stockBatchTable.deleted, false)
+                                ));
+
+                            const matchingBatches = existingBatches.filter(b => {
+                                const batchPrice = Number((b.mainUnitPrice as number).toFixed(2));
+                                return batchPrice === mainUnitPrice;
+                            });
+
+                            if (matchingBatches.length > 0) {
+                                const target = matchingBatches.reduce((latest, b) => {
+                                    return b.createdAt > latest.createdAt ? b : latest;
+                                }, matchingBatches[0]);
+
+                                const targetBatchId = target.id;
+
+                                for (const uc of unitConversions) {
+                                    const addedQuantity = Number(
+                                        (quantityInMain * (uc.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(3)
+                                    );
+
+                                    const [existingStock] = await tx.select().from(stockTable).where(and(
+                                        eq(stockTable.stockBatchId, targetBatchId),
+                                        eq(stockTable.unitId, uc.unitId)
+                                    ));
+
+                                    const priceObj = completeUnitPrices.find(p => p.unitId === uc.unitId);
+                                    const newPrice = priceObj ? priceObj.pricePerQuantity : (existingStock ? existingStock.pricePerQuantity : mainUnitPrice);
+
+                                    if (existingStock) {
+                                        await tx.update(stockTable)
+                                            .set({
+                                                quantity: sql`${stockTable.quantity} + ${addedQuantity}`,
+                                                pricePerQuantity: newPrice,
+                                                updatedAt: getCurrentDate()
+                                            })
+                                            .where(eq(stockTable.id, existingStock.id));
+                                    } else {
+                                        await tx.insert(stockTable).values({
+                                            stockBatchId: targetBatchId,
+                                            productId,
+                                            maintainsId,
+                                            unitId: uc.unitId,
+                                            pricePerQuantity: newPrice,
+                                            quantity: addedQuantity
+                                        });
+                                    }
+                                }
+                            } else {
+                                await StockBatchService.addNewStockBatch({
+                                    productId,
+                                    maintainsId,
+                                    batchNumber: randomUUID(),
+                                    productionDate: getCurrentDate(),
+                                    mainUnitQuantity: quantityInMain,
+                                    unitPrices: completeUnitPrices
+                                }, tx);
+                            }
                         }
                     }
                 }
