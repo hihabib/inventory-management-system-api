@@ -148,7 +148,7 @@ export class PaymentService {
                 productId: saleTable.productId,
                 productName: saleTable.productName,
                 discountType: saleTable.discountType,
-                discountAmount: saleTable.discountAmount,
+                discountQuantity: saleTable.discountQuantity,
                 discountNote: saleTable.discountNote,
                 saleQuantity: saleTable.saleQuantity,
                 saleAmount: saleTable.saleAmount,
@@ -229,7 +229,7 @@ export class PaymentService {
                     productId: row.productId,
                     productName: row.productName,
                     discountType: row.discountType,
-                    discountAmount: row.discountAmount,
+                    discountQuantity: row.discountQuantity,
                     discountNote: row.discountNote,
                     saleQuantity: Number(row.saleQuantity.toFixed(3)),
                     saleAmount: Number(row.saleAmount.toFixed(2)),
@@ -264,7 +264,7 @@ export class PaymentService {
         maintainsId: string,
         startDate: Date,
         endDate: Date
-    ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number; nonSellingItemSold: number }> {
+    ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number; nonSellingItemSold: number; nonSallingItemSoldWithDiscount: number }> {
         try {
             const whereCondition = and(
                 eq(paymentTable.maintainsId, maintainsId),
@@ -289,7 +289,8 @@ export class PaymentService {
             const nonSellingCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
             const [nonSellingResult] = await db
                 .select({
-                    total: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`
+                    totalWithoutDiscount: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`,
+                    totalWithDiscount: sql<number>`COALESCE(SUM(${saleTable.saleAmount}), 0)`
                 })
                 .from(paymentTable)
                 .innerJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
@@ -309,7 +310,8 @@ export class PaymentService {
                 bkash: Number.isFinite(Number(result?.bkash ?? 0)) ? Number(result?.bkash ?? 0) : 0,
                 nogod: Number.isFinite(Number(result?.nogod ?? 0)) ? Number(result?.nogod ?? 0) : 0,
                 sendForUse: Number.isFinite(Number(result?.sendForUse ?? 0)) ? Number(result?.sendForUse ?? 0) : 0,
-                nonSellingItemSold: Number.isFinite(Number(nonSellingResult?.total ?? 0)) ? Number(nonSellingResult?.total ?? 0) : 0
+                nonSellingItemSold: Number.isFinite(Number(nonSellingResult?.totalWithoutDiscount ?? 0)) ? Number(nonSellingResult?.totalWithoutDiscount ?? 0) : 0,
+                nonSallingItemSoldWithDiscount: Number.isFinite(Number(nonSellingResult?.totalWithDiscount ?? 0)) ? Number(nonSellingResult?.totalWithDiscount ?? 0) : 0
             };
             // Ensure primitive numbers
             return {
@@ -319,11 +321,12 @@ export class PaymentService {
                 bkash: Number(out.bkash) || 0,
                 nogod: Number(out.nogod) || 0,
                 sendForUse: Number(out.sendForUse) || 0,
-                nonSellingItemSold: Number(out.nonSellingItemSold) || 0
+                nonSellingItemSold: Number(out.nonSellingItemSold) || 0,
+                nonSallingItemSoldWithDiscount: Number(out.nonSallingItemSoldWithDiscount) || 0
             };
         } catch (err) {
             console.error('[PaymentService] getTotalPaymentsByMaintainsOnDate error:', err);
-            return { due: 0, card: 0, cash: 0, bkash: 0, nogod: 0, sendForUse: 0, nonSellingItemSold: 0 };
+            return { due: 0, card: 0, cash: 0, bkash: 0, nogod: 0, sendForUse: 0, nonSellingItemSold: 0, nonSallingItemSoldWithDiscount: 0 };
         }
     }
 }

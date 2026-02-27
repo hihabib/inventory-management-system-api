@@ -198,7 +198,7 @@ export class SaleService {
                         productId: product.productId,
                         productName: product.productName,
                         discountType: discountType,
-                        discountAmount: discount,
+                        discountQuantity: discount,
                         discountNote: product.discountNote || null,
                         saleQuantity: formattedSaleQuantity,
                         saleAmount: formattedSaleAmount,
@@ -415,7 +415,7 @@ export class SaleService {
                 productId: saleTable.productId,
                 productName: saleTable.productName,
                 discountType: saleTable.discountType,
-                discountAmount: saleTable.discountAmount,
+                discountQuantity: saleTable.discountQuantity,
                 discountNote: saleTable.discountNote,
                 saleQuantity: saleTable.saleQuantity,
                 saleAmount: saleTable.saleAmount,
@@ -472,10 +472,11 @@ export class SaleService {
             ? and(baseWhere, eq(saleTable.customerCategoryId, customerCategoryId))
             : baseWhere;
 
-        // Perform discount calculation in the database layer
+        // Perform discount calculation in the database layer using new formula:
+        // SUM((sale_quantity * price_per_unit) - sale_amount)
         const [result] = await db
             .select({
-                totalDiscount: sql<number>`COALESCE(SUM(${saleTable.discountAmount}), 0)`
+                totalDiscount: sql<number>`COALESCE(SUM((COALESCE(${saleTable.saleQuantity}, 0) * COALESCE(${saleTable.pricePerUnit}, 0)) - COALESCE(${saleTable.saleAmount}, 0)), 0)`
             })
             .from(saleTable)
             .where(whereClause);
@@ -570,7 +571,7 @@ export class SaleService {
 
         const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
         const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
-        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold } = payments;
+        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold, nonSallingItemSoldWithDiscount } = payments;
         const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
         
         const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
@@ -578,10 +579,12 @@ export class SaleService {
 
         return {
             totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
-            mdSir: Number(mdSir || 0),
-            atifAgroOffice: Number(atifAgroOffice || 0),
-            tasteAndSample: Number(tasteAndSample || 0),
-            discount: Number(discount || 0),
+            discount: {
+                officePurchaseDiscount: Number(atifAgroOffice || 0),
+                regularDiscount: Number(discount || 0),
+                mdSirDiscount: Number(mdSir || 0),
+                tasteAndSampleDiscount: Number(tasteAndSample || 0),
+            },
             dueSale: Number(dueSale || 0),
             cardSale: Number(cardSale || 0),
             cashSale: Number(cashSale || 0),
@@ -589,6 +592,7 @@ export class SaleService {
             nogodSale: Number(nogodSale || 0),
             sendForUse: Number(sendForUse || 0),
             nonSellingItemSold: Number(nonSellingItemSold || 0),
+            nonSallingItemSoldWithDiscount: Number(nonSallingItemSoldWithDiscount || 0),
             previousCash: Number(previousCash || 0),
             creditCollection: Number(creditCollection || 0),
             expense: Number(expense || 0),

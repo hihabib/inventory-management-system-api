@@ -18,7 +18,7 @@ export const saleTable = pgTable('sale', {
     productId: uuid('product_id').references(() => productTable.id, { onDelete: 'set null' }),
     productName: varchar('product_name').notNull(),
     discountType: discountTypeEnum('discount_type').default('Fixed').notNull(),
-    discountAmount: numeric('discount_amount', {mode: 'number', scale: 2}).default(0).notNull(),
+    discountQuantity: numeric('discount_quantity', {mode: 'number', scale: 2}).default(0).notNull(),
     discountNote: text('discount_note').default(""),
     saleQuantity: numeric('sale_quantity', { mode: 'number', scale: 3 }).notNull(),
     saleAmount: numeric('sale_amount', { mode: 'number', scale: 2 }).notNull(),
