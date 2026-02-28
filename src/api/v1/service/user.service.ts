@@ -128,6 +128,7 @@ export class UserService {
         description: maintainsTable.description,
         location: maintainsTable.location,
         phone: maintainsTable.phone,
+        inactive: maintainsTable.inactive,
       },
       createdAt: userTable.createdAt,
       updatedAt: userTable.updatedAt,
@@ -145,6 +146,10 @@ export class UserService {
 
     if (!isValidPassword) {
       throw new AppError('Invalid username or password', 401);
+    }
+
+    if (user[0].maintains && (user[0] as any).maintains.inactive) {
+      throw new AppError('Maintains is inactive', 403);
     }
 
     // Generate JWT token with role

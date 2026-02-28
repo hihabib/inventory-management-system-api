@@ -536,70 +536,95 @@ export class SaleService {
     }
 
     static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
-        // Fetch excluded product IDs (Non-selling products)
-        const excludedProductIds = await this.getExcludedProductIds();
-
-        // Start payments promise separately to preserve type inference
-        const paymentsPromise = PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, startDate, endDate);
-
-        const [
-            totalOutgoingProductPrice,
-            mdSir,
-            atifAgroOffice,
-            tasteAndSample,
-            totalDiscount,
-            previousCashRow,
-            creditCollection,
-            expense,
-            sentBy
-        ] = await Promise.all([
-            this.getTotalOutgoingProductPrice(startDate, endDate, maintainsId, excludedProductIds),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", []),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "5a4a8d7f-3704-4ffc-a116-7810b99d696a", []),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", []),
-            this.getTotalDiscountByDate(maintainsId, startDate, endDate, undefined, []),
-            db
-                .select({ stockCash: maintainsTable.stockCash })
-                .from(maintainsTable)
-                .where(eq(maintainsTable.id, maintainsId)),
-            CustomerDueService.getTotalCreditCollection(startDate, endDate, maintainsId, excludedProductIds),
-            ExpenseService.getTotalExpense(startDate, endDate, maintainsId),
-            this.getCashSendingGroupedByType(startDate, endDate, maintainsId)
-        ]);
-
-        const payments = await paymentsPromise;
-
-        const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
-        const discount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
-        const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold, nonSallingItemSoldWithDiscount } = payments;
-        const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
-        
-        const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
-        const totalCashAfterSend = (totalCashBeforeSend || 0) - (totalSent || 0);
-
-        return {
-            totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
-            discount: {
-                officePurchaseDiscount: Number(atifAgroOffice || 0),
-                regularDiscount: Number(discount || 0),
-                mdSirDiscount: Number(mdSir || 0),
-                tasteAndSampleDiscount: Number(tasteAndSample || 0),
-            },
-            dueSale: Number(dueSale || 0),
-            cardSale: Number(cardSale || 0),
-            cashSale: Number(cashSale || 0),
-            bkashSale: Number(bkashSale || 0),
-            nogodSale: Number(nogodSale || 0),
-            sendForUse: Number(sendForUse || 0),
-            nonSellingItemSold: Number(nonSellingItemSold || 0),
-            nonSallingItemSoldWithDiscount: Number(nonSallingItemSoldWithDiscount || 0),
-            previousCash: Number(previousCash || 0),
-            creditCollection: Number(creditCollection || 0),
-            expense: Number(expense || 0),
-            totalCashBeforeSend: Number(totalCashBeforeSend || 0),
-            sentBy: sentBy,
-            totalCashAfterSend: Number(totalCashAfterSend || 0)
+        const tz = 'Asia/Dhaka';
+        const df = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+        const getParts = (d: Date) => {
+            const p = df.formatToParts(d);
+            const year = p.find(x => x.type === 'year')?.value || '1970';
+            const month = p.find(x => x.type === 'month')?.value || '01';
+            const day = p.find(x => x.type === 'day')?.value || '01';
+            return { year: Number(year), month: Number(month), day: Number(day) };
         };
+        const toKey = (y: number, m: number, d: number) => `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y.toString().padStart(4, '0')}`;
+        const dayStartUtc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d, -6, 0, 0, 0));
+        const addDays = (y: number, m: number, d: number, delta: number) => {
+            const base = new Date(Date.UTC(y, m - 1, d));
+            const next = new Date(base.getTime() + delta * 24 * 60 * 60 * 1000);
+            const parts = getParts(next);
+            return { y: parts.year, m: parts.month, d: parts.day };
+        };
+        const s = getParts(startDate);
+        const e = getParts(endDate);
+        const startKey = toKey(s.year, s.month, s.day);
+        const endKey = toKey(e.year, e.month, e.day);
+        const days: Array<{ key: string; y: number; m: number; d: number }> = [];
+        let cy = s.year, cm = s.month, cd = s.day;
+        while (true) {
+            const k = toKey(cy, cm, cd);
+            days.push({ key: k, y: cy, m: cm, d: cd });
+            if (k === endKey) break;
+            const n = addDays(cy, cm, cd, 1);
+            cy = n.y; cm = n.m; cd = n.d;
+        }
+        const excludedProductIds = await this.getExcludedProductIds();
+        const results: Record<string, any> = {};
+        for (const day of days) {
+            const dayStart = dayStartUtc(day.y, day.m, day.d);
+            const dayEndExclusive = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+            const [
+                totalOutgoingProductPrice,
+                mdSir,
+                atifAgroOffice,
+                tasteAndSample,
+                totalDiscount,
+                previousCashRow,
+                creditCollection,
+                expense,
+                sentBy,
+                payments
+            ] = await Promise.all([
+                this.getTotalOutgoingProductPrice(dayStart, dayEndExclusive, maintainsId, excludedProductIds),
+                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", []),
+                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "5a4a8d7f-3704-4ffc-a116-7810b99d696a", []),
+                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", []),
+                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), undefined, []),
+                db.select({ stockCash: maintainsTable.stockCash }).from(maintainsTable).where(eq(maintainsTable.id, maintainsId)),
+                CustomerDueService.getTotalCreditCollection(dayStart, dayEndExclusive, maintainsId, excludedProductIds),
+                ExpenseService.getTotalExpense(dayStart, dayEndExclusive, maintainsId),
+                this.getCashSendingGroupedByType(dayStart, new Date(dayEndExclusive.getTime() - 1), maintainsId),
+                PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, dayStart, dayEndExclusive)
+            ]);
+            const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
+            const regDiscount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
+            const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold, nonSallingItemSoldWithDiscount } = payments;
+            const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
+            const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
+            const totalCashAfterSend = (totalCashBeforeSend || 0) - (totalSent || 0);
+            results[day.key] = {
+                totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
+                discount: {
+                    officePurchaseDiscount: Number(atifAgroOffice || 0),
+                    regularDiscount: Number(regDiscount || 0),
+                    mdSirDiscount: Number(mdSir || 0),
+                    tasteAndSampleDiscount: Number(tasteAndSample || 0)
+                },
+                dueSale: Number(dueSale || 0),
+                cardSale: Number(cardSale || 0),
+                cashSale: Number(cashSale || 0),
+                bkashSale: Number(bkashSale || 0),
+                nogodSale: Number(nogodSale || 0),
+                sendForUse: Number(sendForUse || 0),
+                nonSellingItemSold: Number(nonSellingItemSold || 0),
+                nonSallingItemSoldWithDiscount: Number(nonSallingItemSoldWithDiscount || 0),
+                previousCash: Number(previousCash || 0),
+                creditCollection: Number(creditCollection || 0),
+                expense: Number(expense || 0),
+                totalCashBeforeSend: Number(totalCashBeforeSend || 0),
+                sentBy: sentBy,
+                totalCashAfterSend: Number(totalCashAfterSend || 0)
+            };
+        }
+        return results;
     }
 
     // Helper function to get all category IDs including children recursively

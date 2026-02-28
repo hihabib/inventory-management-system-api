@@ -75,6 +75,17 @@ export class DeliveryHistoryService {
                     ...(item.latestUnitPriceData && { latestUnitPriceData: item.latestUnitPriceData })
                 };
 
+                const [maintains] = await tx.select().from(maintainsTable).where(eq(maintainsTable.id, item.maintainsId));
+                if (maintains && maintains.inactive) {
+                    throw new Error(`Cannot create delivery history for an inactive maintains`);
+                }
+                if (item.transferSenderMaintainsId) {
+                    const [senderMaintains] = await tx.select().from(maintainsTable).where(eq(maintainsTable.id, item.transferSenderMaintainsId));
+                    if (senderMaintains && senderMaintains.inactive) {
+                        throw new Error(`Cannot create delivery history with an inactive sender maintains`);
+                    }
+                }
+
                 // Set current time according to status 
                 if (item.status === "Order-Placed") {
                     formatted.orderedAt = getCurrentDate();
@@ -1562,6 +1573,30 @@ export class DeliveryHistoryService {
                     alias: "productCategory",
                     condition: eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id)
                 }
+            ],
+            groupBy: [
+                deliveryHistoryTable.id,
+                deliveryHistoryTable.createdAt,
+                deliveryHistoryTable.updatedAt,
+                deliveryHistoryTable.createdBy,
+                deliveryHistoryTable.status,
+                deliveryHistoryTable.maintainsId,
+                deliveryHistoryTable.transferSenderMaintainsId,
+                deliveryHistoryTable.unitId,
+                deliveryHistoryTable.productId,
+                deliveryHistoryTable.pricePerQuantity,
+                deliveryHistoryTable.sentQuantity,
+                deliveryHistoryTable.receivedQuantity,
+                deliveryHistoryTable.orderedQuantity,
+                deliveryHistoryTable.orderedUnit,
+                deliveryHistoryTable.orderNote,
+                deliveryHistoryTable.neededAt,
+                deliveryHistoryTable.sentAt,
+                deliveryHistoryTable.orderedAt,
+                deliveryHistoryTable.receivedAt,
+                deliveryHistoryTable.cancelledAt,
+                deliveryHistoryTable.latestUnitPriceData,
+                productTable.sku
             ],
             select: { ...deliveryHistoryTable },
             orderBy: asc(sql`
