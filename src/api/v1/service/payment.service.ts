@@ -263,14 +263,24 @@ export class PaymentService {
     static async getTotalPaymentsByMaintainsOnDate(
         maintainsId: string,
         startDate: Date,
-        endDate: Date
+        endDate: Date,
+        customerCategoryIds?: string[]
     ): Promise<{ due: number; card: number; cash: number; bkash: number; nogod: number; sendForUse: number; nonSellingItemSold: number; nonSallingItemSoldWithDiscount: number }> {
         try {
-            const whereCondition = and(
+            let whereCondition = and(
                 eq(paymentTable.maintainsId, maintainsId),
                 gte(paymentTable.createdAt, startDate),
                 lt(paymentTable.createdAt, endDate)
             );
+
+            if (customerCategoryIds && customerCategoryIds.length > 0) {
+                const matchingPaymentIdsQuery = db.select({ id: paymentSaleTable.paymentId })
+                    .from(paymentSaleTable)
+                    .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
+                    .where(inArray(saleTable.customerCategoryId, customerCategoryIds));
+                
+                whereCondition = and(whereCondition, inArray(paymentTable.id, matchingPaymentIdsQuery));
+            }
 
             // Compute breakdown sums in DB: extract each key from JSONB and sum
             const [result] = await db
@@ -287,6 +297,17 @@ export class PaymentService {
 
             // Calculate non-selling item sold amount
             const nonSellingCategoryId = "7fc57497-4215-452c-b292-9bedc540f652";
+            let nonSellingWhere = and(
+                eq(paymentTable.maintainsId, maintainsId),
+                gte(paymentTable.createdAt, startDate),
+                lt(paymentTable.createdAt, endDate),
+                eq(productCategoryInProductTable.productCategoryId, nonSellingCategoryId)
+            );
+
+            if (customerCategoryIds && customerCategoryIds.length > 0) {
+                nonSellingWhere = and(nonSellingWhere, inArray(saleTable.customerCategoryId, customerCategoryIds));
+            }
+
             const [nonSellingResult] = await db
                 .select({
                     totalWithoutDiscount: sql<number>`COALESCE(SUM(${saleTable.saleQuantity} * ${saleTable.pricePerUnit}), 0)`,
@@ -296,12 +317,7 @@ export class PaymentService {
                 .innerJoin(paymentSaleTable, eq(paymentTable.id, paymentSaleTable.paymentId))
                 .innerJoin(saleTable, eq(paymentSaleTable.saleId, saleTable.id))
                 .innerJoin(productCategoryInProductTable, eq(saleTable.productId, productCategoryInProductTable.productId))
-                .where(and(
-                    eq(paymentTable.maintainsId, maintainsId),
-                    gte(paymentTable.createdAt, startDate),
-                    lt(paymentTable.createdAt, endDate),
-                    eq(productCategoryInProductTable.productCategoryId, nonSellingCategoryId)
-                ));
+                .where(nonSellingWhere);
 
             const out = {
                 due: Number.isFinite(Number(result?.due ?? 0)) ? Number(result?.due ?? 0) : 0,

@@ -15,6 +15,7 @@ import { dailyStockRecordTable } from "../drizzle/schema/dailyStockRecord";
 import { cashSendingTable } from "../drizzle/schema/cashSending";
 import { userTable } from "../drizzle/schema/user";
 import { maintainsTable } from "../drizzle/schema/maintains";
+import { customerCategoryTable } from "../drizzle/schema/customerCategory";
 import { getCurrentDate } from "../utils/timezone";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
@@ -436,6 +437,24 @@ export class SaleService {
         return sale;
     }
 
+    // Helper to get the maintains type (Outlet | Production)
+    private static async getMaintainsType(maintainsId: string): Promise<'Outlet' | 'Production'> {
+        const [row] = await db
+            .select({ type: maintainsTable.type })
+            .from(maintainsTable)
+            .where(eq(maintainsTable.id, maintainsId))
+            .limit(1);
+        return row?.type ?? 'Outlet';
+    }
+
+    // Helper to get all customer categories of a given type
+    private static async getCustomerCategoriesByType(type: 'Outlet' | 'Production'): Promise<Array<{ id: string; categoryName: string }>> {
+        return db
+            .select({ id: customerCategoryTable.id, categoryName: customerCategoryTable.categoryName })
+            .from(customerCategoryTable)
+            .where(eq(customerCategoryTable.type, type));
+    }
+
     // Helper to get excluded product IDs (Non-selling products)
     private static async getExcludedProductIds(): Promise<string[]> {
         const excludedCategoryId = "7fc57497-4215-452c-b292-9bedc540f652"; 
@@ -444,7 +463,7 @@ export class SaleService {
             .from(productCategoryInProductTable)
             .where(eq(productCategoryInProductTable.productCategoryId, excludedCategoryId))
             .leftJoin(productTable, eq(productCategoryInProductTable.productId, productTable.id));
-        console.log("products are excluding", products.map(p => p.name))
+        // console.log("products are excluding", products.map(p => p.name))
         return products.map(p => p.id);
     }
 
@@ -487,7 +506,7 @@ export class SaleService {
 
     // Get total outgoing product price for a specific calendar date and maintains outlet
     // Calculates gross daily sale amount (SUM(quantityInMainUnit * mainUnitPrice)) without discount
-    static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string, excludedProductIds: string[] = []): Promise<number> {
+    static async getTotalOutgoingProductPrice(startDate: Date, endDate: Date, maintainsId: string, excludedProductIds: string[] = [], customerCategoryIds?: string[]): Promise<number> {
         let whereClause = and(
             eq(saleTable.maintainsId, maintainsId),
             gte(saleTable.createdAt, startDate),
@@ -496,6 +515,10 @@ export class SaleService {
 
         if (excludedProductIds.length > 0) {
             whereClause = and(whereClause, notInArray(saleTable.productId, excludedProductIds));
+        }
+
+        if (customerCategoryIds && customerCategoryIds.length > 0) {
+            whereClause = and(whereClause, inArray(saleTable.customerCategoryId, customerCategoryIds));
         }
 
         const [result] = await db
@@ -535,78 +558,127 @@ export class SaleService {
         return sentBy;
     }
 
-    static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string) {
-        const tz = 'Asia/Dhaka';
-        const df = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-        const getParts = (d: Date) => {
-            const p = df.formatToParts(d);
-            const year = p.find(x => x.type === 'year')?.value || '1970';
-            const month = p.find(x => x.type === 'month')?.value || '01';
-            const day = p.find(x => x.type === 'day')?.value || '01';
+    static async getMoneyReport(startDate: Date, endDate: Date, maintainsId: string, customerCategoryIds?: string[]) {
+        // --- Date helpers (Dhaka timezone) ---
+        const dhakaTimeZone = 'Asia/Dhaka';
+        const dateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: dhakaTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+
+        const getDateParts = (d: Date) => {
+            const formattedParts = dateFormatter.formatToParts(d);
+            const year = formattedParts.find(x => x.type === 'year')?.value || '1970';
+            const month = formattedParts.find(x => x.type === 'month')?.value || '01';
+            const day = formattedParts.find(x => x.type === 'day')?.value || '01';
             return { year: Number(year), month: Number(month), day: Number(day) };
         };
-        const toKey = (y: number, m: number, d: number) => `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y.toString().padStart(4, '0')}`;
-        const dayStartUtc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d, -6, 0, 0, 0));
-        const addDays = (y: number, m: number, d: number, delta: number) => {
+
+        const formatDateToKey = (y: number, m: number, d: number) =>
+            `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y.toString().padStart(4, '0')}`;
+
+        const getDayStartUtc = (y: number, m: number, d: number) =>
+            new Date(Date.UTC(y, m - 1, d, -6, 0, 0, 0));
+
+        const getNextDayParts = (y: number, m: number, d: number) => {
             const base = new Date(Date.UTC(y, m - 1, d));
-            const next = new Date(base.getTime() + delta * 24 * 60 * 60 * 1000);
-            const parts = getParts(next);
+            const next = new Date(base.getTime() + 24 * 60 * 60 * 1000);
+            const parts = getDateParts(next);
             return { y: parts.year, m: parts.month, d: parts.day };
         };
-        const s = getParts(startDate);
-        const e = getParts(endDate);
-        const startKey = toKey(s.year, s.month, s.day);
-        const endKey = toKey(e.year, e.month, e.day);
+
+        // --- Build day list ---
+        const startDateParts = getDateParts(startDate);
+        const endDateParts = getDateParts(endDate);
+        const startKey = formatDateToKey(startDateParts.year, startDateParts.month, startDateParts.day);
+        const endKey = formatDateToKey(endDateParts.year, endDateParts.month, endDateParts.day);
         const days: Array<{ key: string; y: number; m: number; d: number }> = [];
-        let cy = s.year, cm = s.month, cd = s.day;
+        let currentYear = startDateParts.year, currentMonth = startDateParts.month, currentDay = startDateParts.day;
         while (true) {
-            const k = toKey(cy, cm, cd);
-            days.push({ key: k, y: cy, m: cm, d: cd });
-            if (k === endKey) break;
-            const n = addDays(cy, cm, cd, 1);
-            cy = n.y; cm = n.m; cd = n.d;
+            const currentKey = formatDateToKey(currentYear, currentMonth, currentDay);
+            days.push({ key: currentKey, y: currentYear, m: currentMonth, d: currentDay });
+            if (currentKey === endKey) break;
+            const nextDay = getNextDayParts(currentYear, currentMonth, currentDay);
+            currentYear = nextDay.y; currentMonth = nextDay.m; currentDay = nextDay.d;
         }
-        const excludedProductIds = await this.getExcludedProductIds();
-        const results: Record<string, any> = {};
-        for (const day of days) {
-            const dayStart = dayStartUtc(day.y, day.m, day.d);
-            const dayEndExclusive = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+        // --- One-time setup: fetch maintains type + matching customer categories ---
+        const maintainsType = await this.getMaintainsType(maintainsId);
+        let [typedCategories, excludedProductIds] = await Promise.all([
+            this.getCustomerCategoriesByType(maintainsType),
+            this.getExcludedProductIds(),
+        ]);
+
+        if (customerCategoryIds && customerCategoryIds.length > 0) {
+            typedCategories = typedCategories.filter(cat => customerCategoryIds.includes(cat.id));
+        }
+
+        // --- Per-day data fetch helper ---
+        const fetchDayData = async (dayStart: Date, dayEndExclusive: Date) => {
+            const dayEndInclusive = new Date(dayEndExclusive.getTime() - 1);
+
+            // Fetch per-category discounts in parallel
+            const categoryDiscountPromises = typedCategories.map(cat =>
+                this.getTotalDiscountByDate(maintainsId, dayStart, dayEndInclusive, cat.id, [])
+                    .then(amount => ({ categoryName: cat.categoryName, amount: Number(amount || 0) }))
+            );
+
             const [
                 totalOutgoingProductPrice,
-                mdSir,
-                atifAgroOffice,
-                tasteAndSample,
-                totalDiscount,
                 previousCashRow,
                 creditCollection,
                 expense,
                 sentBy,
-                payments
+                payments,
+                categoryDiscountResults,
             ] = await Promise.all([
-                this.getTotalOutgoingProductPrice(dayStart, dayEndExclusive, maintainsId, excludedProductIds),
-                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "5e3839e3-ffe8-48c8-a9ec-a3401ec7b565", []),
-                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "5a4a8d7f-3704-4ffc-a116-7810b99d696a", []),
-                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), "22ff49d7-a66b-48c4-b799-e47d5ac8f44e", []),
-                this.getTotalDiscountByDate(maintainsId, dayStart, new Date(dayEndExclusive.getTime() - 1), undefined, []),
+                this.getTotalOutgoingProductPrice(dayStart, dayEndExclusive, maintainsId, excludedProductIds, customerCategoryIds),
                 db.select({ stockCash: maintainsTable.stockCash }).from(maintainsTable).where(eq(maintainsTable.id, maintainsId)),
                 CustomerDueService.getTotalCreditCollection(dayStart, dayEndExclusive, maintainsId, excludedProductIds),
                 ExpenseService.getTotalExpense(dayStart, dayEndExclusive, maintainsId),
-                this.getCashSendingGroupedByType(dayStart, new Date(dayEndExclusive.getTime() - 1), maintainsId),
-                PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, dayStart, dayEndExclusive)
+                this.getCashSendingGroupedByType(dayStart, dayEndInclusive, maintainsId),
+                PaymentService.getTotalPaymentsByMaintainsOnDate(maintainsId, dayStart, dayEndExclusive, customerCategoryIds),
+                Promise.all(categoryDiscountPromises),
             ]);
-            const previousCash = Number(previousCashRow?.[0]?.stockCash ?? 0) || 0;
-            const regDiscount = (totalDiscount || 0) - ((mdSir || 0) + (atifAgroOffice || 0) + (tasteAndSample || 0));
-            const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold, nonSallingItemSoldWithDiscount } = payments;
-            const totalCashBeforeSend = (cashSale || 0) + (previousCash || 0) + (creditCollection || 0) - (expense || 0);
-            const totalSent = Object.values(sentBy).reduce((sum, val) => sum + val, 0);
-            const totalCashAfterSend = (totalCashBeforeSend || 0) - (totalSent || 0);
-            results[day.key] = {
+
+            // Total discount = sum of all typed category discounts
+            const totalDiscount = categoryDiscountResults.reduce((sum, c) => sum + c.amount, 0);
+
+            return {
                 totalOutgoingProductPrice: Number(totalOutgoingProductPrice || 0),
+                previousCash: Number(previousCashRow?.[0]?.stockCash ?? 0) || 0,
+                creditCollection: Number(creditCollection || 0),
+                expense: Number(expense || 0),
+                sentBy,
+                payments,
+                categoryDiscounts: categoryDiscountResults,   // [{ categoryName, amount }]
+                totalDiscount,
+            };
+        };
+
+        // --- Compute result per day ---
+        const results: Record<string, any> = {};
+        for (const day of days) {
+            const dayStart = getDayStartUtc(day.y, day.m, day.d);
+            const dayEndExclusive = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+            const dayData = await fetchDayData(dayStart, dayEndExclusive);
+
+            // Build named discount map: { categoryName -> amount }
+            const namedDiscountMap: Record<string, number> = {};
+            let namedDiscountTotal = 0;
+            for (const { categoryName, amount } of dayData.categoryDiscounts) {
+                namedDiscountMap[categoryName] = amount;
+                namedDiscountTotal += amount;
+            }
+
+            const { due: dueSale, card: cardSale, cash: cashSale, bkash: bkashSale, nogod: nogodSale, sendForUse, nonSellingItemSold, nonSallingItemSoldWithDiscount } = dayData.payments;
+            const totalCashBeforeSend = (cashSale || 0) + dayData.previousCash + dayData.creditCollection - dayData.expense;
+            const totalSent = Object.values(dayData.sentBy).reduce((sum, val) => sum + val, 0);
+            const totalCashAfterSend = totalCashBeforeSend - totalSent;
+
+            results[day.key] = {
+                totalOutgoingProductPrice: dayData.totalOutgoingProductPrice,
                 discount: {
-                    officePurchaseDiscount: Number(atifAgroOffice || 0),
-                    regularDiscount: Number(regDiscount || 0),
-                    mdSirDiscount: Number(mdSir || 0),
-                    tasteAndSampleDiscount: Number(tasteAndSample || 0)
+                    ...namedDiscountMap,          // one entry per customer category of matching type
+                    total: dayData.totalDiscount,
                 },
                 dueSale: Number(dueSale || 0),
                 cardSale: Number(cardSale || 0),
@@ -616,12 +688,12 @@ export class SaleService {
                 sendForUse: Number(sendForUse || 0),
                 nonSellingItemSold: Number(nonSellingItemSold || 0),
                 nonSallingItemSoldWithDiscount: Number(nonSallingItemSoldWithDiscount || 0),
-                previousCash: Number(previousCash || 0),
-                creditCollection: Number(creditCollection || 0),
-                expense: Number(expense || 0),
+                previousCash: dayData.previousCash,
+                creditCollection: dayData.creditCollection,
+                expense: dayData.expense,
                 totalCashBeforeSend: Number(totalCashBeforeSend || 0),
-                sentBy: sentBy,
-                totalCashAfterSend: Number(totalCashAfterSend || 0)
+                sentBy: dayData.sentBy,
+                totalCashAfterSend: Number(totalCashAfterSend || 0),
             };
         }
         return results;
@@ -654,7 +726,7 @@ export class SaleService {
         return Array.from(categoryIds);
     }
 
-    static async getDailyReportData(startDateIso: string, endDateIso: string, maintainsId: string, isDummy: boolean = false, reduceSalePercentage?: number) {
+    static async getDailyReportData(startDateIso: string, endDateIso: string, maintainsId: string, isDummy: boolean = false, reduceSalePercentage?: number, customerCategoryIds?: string[]) {
         try {
             const startDate = new Date(startDateIso);
             const endDate = new Date(endDateIso);
@@ -668,8 +740,14 @@ export class SaleService {
         
 
             // Get all category IDs (including children) for filtering
-            const targetCategoryId = maintainsId === "1160ad56-ac12-4034-8091-ae60c31eb624" ? "a530a1b7-a808-473f-b9a4-166aac84d20e" : "cd9e69b0-8601-4f91-b121-46386eeb2c00"; // if maintain is production then use Ingredients category, otherwise use Outlet Products category
-            const allCategoryIds = (await this.getAllCategoryIds(targetCategoryId)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"); // remove "Non-selling product" category id
+            const maintainsType = await this.getMaintainsType(maintainsId);
+            const targetCategoryName = maintainsType === "Production" ? "Ingredients" : "Outlet Products";
+            const [targetCategory] = await db.select().from(productCategoryTable).where(eq(productCategoryTable.name, targetCategoryName)).limit(1);
+
+            let allCategoryIds: string[] = [];
+            if (targetCategory) {
+               allCategoryIds = (await this.getAllCategoryIds(targetCategory.id)).filter(catId => catId !== "7fc57497-4215-452c-b292-9bedc540f652"); // remove "Non-selling product" category id
+            }
             // Fetch valid product IDs first to avoid join multiplication (Cartesian product issue)
             let validProductIds: string[] = [];
             if (allCategoryIds.length > 0) {
@@ -749,7 +827,8 @@ export class SaleService {
                         eq(saleTable.maintainsId, maintainsId),
                         gte(saleTable.createdAt, startDate),
                         lte(saleTable.createdAt, endDate),
-                        inArray(saleTable.productId, validProductIds)
+                        inArray(saleTable.productId, validProductIds),
+                        ...(customerCategoryIds && customerCategoryIds.length > 0 ? [inArray(saleTable.customerCategoryId, customerCategoryIds)] : [])
                     )
                 )
                 .groupBy(saleTable.productId, productTable.name, unitTable.name, productTable.sku) : [];

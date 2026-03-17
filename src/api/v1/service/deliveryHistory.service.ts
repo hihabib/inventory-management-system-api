@@ -1,22 +1,21 @@
-import { asc, desc, eq, sql, and, inArray } from "drizzle-orm";
-import { db } from "../drizzle/db";
-import { AppError } from "../utils/AppError";
-import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
-import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
-import { StockService } from "./stock.service";
-import { StockBatchService } from "./stockBatch.service";
-import { NewStock, stockTable } from "../drizzle/schema/stock";
-import { unitConversionTable } from "../drizzle/schema/unitConversion";
-import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { randomUUID } from "crypto";
-import { getCurrentDate } from "../utils/timezone";
-import { productTable } from "../drizzle/schema/product";
-import { unitTable } from "../drizzle/schema/unit";
-import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
-import { productCategoryTable } from "../drizzle/schema/productCategory";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { db } from "../drizzle/db";
+import { NewDeliveryHistory, deliveryHistoryTable } from "../drizzle/schema/deliveryHistory";
 import { maintainsTable } from "../drizzle/schema/maintains";
+import { productTable } from "../drizzle/schema/product";
+import { productCategoryTable } from "../drizzle/schema/productCategory";
+import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
 import { readyProductTable } from "../drizzle/schema/readyProduct";
 import { readyProductAllocationTable } from "../drizzle/schema/readyProductAllocation";
+import { NewStock, stockTable } from "../drizzle/schema/stock";
+import { stockBatchTable } from "../drizzle/schema/stockBatch";
+import { unitTable } from "../drizzle/schema/unit";
+import { unitConversionTable } from "../drizzle/schema/unitConversion";
+import { AppError } from "../utils/AppError";
+import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
+import { getCurrentDate } from "../utils/timezone";
+import { StockBatchService } from "./stockBatch.service";
 
 export class DeliveryHistoryService {
     private static async validateSenderStock(tx: any, productId: string, senderMaintainsId: string, quantity: number, unitId: string) {
@@ -310,7 +309,7 @@ export class DeliveryHistoryService {
             // If there are stocks to add, update latest batch or create new when prices differ
             if (stocksToAdd.length > 0) {
                 try {
-                    console.log("stocks are adding", stocksToAdd);
+                    // console.log("stocks are adding", stocksToAdd);
                     // Aggregate client-provided unit prices per product-maintains key when available
                     const clientUnitPricesByKey: Record<string, { unitId: string; pricePerQuantity: number }[]> = {};
                     for (const created of createdDeliveryHistories) {
@@ -398,7 +397,7 @@ export class DeliveryHistoryService {
             // If there are stocks to reduce, use StockBatchService instead of old proportional logic
             if (stocksToReduce.length > 0) {
                 try {
-                    console.log("stocks are reducing", stocksToReduce);
+                    // console.log("stocks are reducing", stocksToReduce);
 
                     // Process each stock reduction using the new stock batch system
                     for (const stockReduction of stocksToReduce) {
@@ -422,7 +421,7 @@ export class DeliveryHistoryService {
             // If there are stocks to replace, remove all old stock and create new batch using provided latestUnitPriceData
             if (stocksToReplace.length > 0) {
                 try {
-                    console.log("stocks are replacing", stocksToReplace);
+                    // console.log("stocks are replacing", stocksToReplace);
 
                     // Group by product-maintains key
                     const replaceGroups = stocksToReplace.reduce((groups, item) => {
@@ -665,7 +664,7 @@ export class DeliveryHistoryService {
             try {
                 // A. Process Reductions
                 if (stocksToReduce.length > 0) {
-                    console.log("[DeliveryHistoryService#update] Processing reductions:", stocksToReduce);
+                    // console.log("[DeliveryHistoryService#update] Processing reductions:", stocksToReduce);
                     for (const reduction of stocksToReduce) {
                          // For Return-Completed, we might need processSaleByStockId if we want to target specific batch?
                          // But existing logic for Return used processSaleByStockId which takes stockId.
@@ -706,7 +705,7 @@ export class DeliveryHistoryService {
 
                 // B. Process Additions
                 if (stocksToAdd.length > 0) {
-                    console.log("[DeliveryHistoryService#update] Processing additions:", stocksToAdd);
+                    // console.log("[DeliveryHistoryService#update] Processing additions:", stocksToAdd);
                     for (const stockData of stocksToAdd) {
                         const unitPricesFromClient = Array.isArray((deliveryHistoryData as any).latestUnitPriceData)
                             ? (deliveryHistoryData as any).latestUnitPriceData as { unitId: string; pricePerQuantity: number }[]
@@ -1222,7 +1221,7 @@ export class DeliveryHistoryService {
             try {
                 // 1. Process Stock Reductions (Sender/Return) FIRST
                 if (stocksToReduce.length > 0) {
-                    console.log("stocks are reducing", stocksToReduce);
+                    // console.log("stocks are reducing", stocksToReduce);
 
                     // Process each stock reduction using the new stock batch system
                     for (const stockReduction of stocksToReduce) {
@@ -1240,7 +1239,7 @@ export class DeliveryHistoryService {
 
                 // 2. Process Stock Additions (Receiver/Order Completion) SECOND
                 if (stocksToAdd.length > 0) {
-                    console.log("stocks are adding", stocksToAdd);
+                    // console.log("stocks are adding", stocksToAdd);
 
                     const transferStocks = stocksToAdd.filter(s => s.sourceStatus === 'Transfer-Completed');
                     const orderStocks = stocksToAdd.filter(s => s.sourceStatus !== 'Transfer-Completed');
@@ -1523,7 +1522,7 @@ export class DeliveryHistoryService {
         filter: FilterOptions = {}
     ) {
 
-        console.log("filter", filter);
+        // console.log("filter", filter);
         
         // Expand productCategory.id filter to include child categories
         let modifiedFilter = { ...filter };

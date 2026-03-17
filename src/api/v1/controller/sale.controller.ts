@@ -164,7 +164,7 @@ export class SaleController {
     });
 
     static getDailyReportData = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { startDate, endDate, maintains_id, isDummy, reduceSalePercentage } = req.query;
+        const { startDate, endDate, maintains_id, isDummy, reduceSalePercentage, customer_category_id } = req.query;
         
         if (!startDate || !endDate || !maintains_id) {
             return sendResponse(res, 400, "Parameters 'startDate', 'endDate' and 'maintains_id' are required");
@@ -198,13 +198,29 @@ export class SaleController {
             }
         }
 
+        // Parse customer_category_id
+        let customerCategoryIds: string[] | undefined;
+        if (customer_category_id) {
+            customerCategoryIds = Array.isArray(customer_category_id)
+                ? (customer_category_id as string[])
+                : [customer_category_id as string];
+
+            // Validate UUIDs
+            for (const id of customerCategoryIds) {
+                if (!uuidRegex.test(id)) {
+                    return sendResponse(res, 400, "Invalid customer_category_id format. Must be a valid UUID");
+                }
+            }
+        }
+
         try {
             const reportData = await SaleService.getDailyReportData(
                 startDate as string,
                 endDate as string,
                 maintains_id as string,
                 isDummy === "true",
-                reduceSalePercentage ? parseFloat(reduceSalePercentage as string) : undefined
+                reduceSalePercentage ? parseFloat(reduceSalePercentage as string) : undefined,
+                customerCategoryIds
             );
             return sendResponse(res, 200, "Daily report data retrieved successfully", reportData);
         } catch (error) {
@@ -214,9 +230,9 @@ export class SaleController {
     });
 
     // GET /api/v1/sales/getMoneyReport
-    // Query params: maintains_id (UUID), startDate (ISO), endDate (ISO)
+    // Query params: maintains_id (UUID), startDate (ISO), endDate (ISO), customerCategoryIds (optional array of UUIDs)
     static getMoneyReport = requestHandler(async (req: AuthRequest, res: Response) => {
-        const { maintains_id, startDate, endDate } = req.query;
+        const { maintains_id, startDate, endDate, customerCategoryIds } = req.query;
 
         if (!maintains_id || !startDate || !endDate) {
             return sendResponse(res, 400, "Parameters 'maintains_id', 'startDate' and 'endDate' are required");
@@ -228,6 +244,21 @@ export class SaleController {
             return sendResponse(res, 400, "Invalid maintains_id format. Must be a valid UUID");
         }
 
+        // Parse customerCategoryIds
+        let parsedCustomerCategoryIds: string[] | undefined;
+        if (customerCategoryIds) {
+            parsedCustomerCategoryIds = Array.isArray(customerCategoryIds)
+                ? (customerCategoryIds as string[])
+                : [customerCategoryIds as string];
+
+            // Validate UUIDs
+            for (const id of parsedCustomerCategoryIds) {
+                if (!uuidRegex.test(id)) {
+                    return sendResponse(res, 400, "Invalid customerCategoryIds format. Must be a valid UUID");
+                }
+            }
+        }
+
         const start = new Date(startDate as string);
         const end = new Date(endDate as string);
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -236,7 +267,7 @@ export class SaleController {
 
         try {
             const maintainsId = maintains_id as string;
-            const data = await SaleService.getMoneyReport(start, end, maintainsId);
+            const data = await SaleService.getMoneyReport(start, end, maintainsId, parsedCustomerCategoryIds);
             return sendResponse(res, 200, "Money report generated successfully", data);
         } catch (error) {
             console.error("Error generating money report:", error);

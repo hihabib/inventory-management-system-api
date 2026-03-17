@@ -25,10 +25,10 @@ export class StockBatchService {
         mainUnitQuantity: number;
         unitPrices: Array<{ unitId: string; pricePerQuantity: number }>;
     }, txArg?: any) {
-        console.log('🚀 [StockBatchService] Starting addNewStockBatch with data:', JSON.stringify(batchData, null, 2));
+        // console.log('🚀 [StockBatchService] Starting addNewStockBatch with data:', JSON.stringify(batchData, null, 2));
 
         const runAdd = async (tx: any) => {
-            console.log('📦 [StockBatchService] Creating stock batch for product:', batchData.productId);
+            // console.log('📦 [StockBatchService] Creating stock batch for product:', batchData.productId);
 
             // Get product information including mainUnitId
             const [product] = await tx.select().from(productTable).where(eq(productTable.id, batchData.productId));
@@ -41,7 +41,7 @@ export class StockBatchService {
                 throw new Error(`Product ${batchData.productId} does not have a main unit defined`);
             }
 
-            console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
+            // console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
 
             // Clean up empty stock batches using centralized helper before creating new batch
             try {
@@ -59,7 +59,7 @@ export class StockBatchService {
                 throw new Error(`No unit conversions found for product ${batchData.productId}`);
             }
 
-            console.log('📊 [StockBatchService] Found', unitConversions.length, 'unit conversions');
+            // console.log('📊 [StockBatchService] Found', unitConversions.length, 'unit conversions');
 
             // Find the main unit conversion factor
             const mainUnitConversion = unitConversions.find((uc: any) => uc.unitId === product.mainUnitId);
@@ -67,7 +67,7 @@ export class StockBatchService {
                 throw new Error(`Main unit conversion not found for product ${batchData.productId}`);
             }
 
-            console.log('🎯 [StockBatchService] Main unit conversion factor:', mainUnitConversion.conversionFactor);
+            // console.log('🎯 [StockBatchService] Main unit conversion factor:', mainUnitConversion.conversionFactor);
 
             // Create the stock batch
             const [stockBatch] = await tx.insert(stockBatchTable).values({
@@ -77,15 +77,15 @@ export class StockBatchService {
                 productionDate: batchData.productionDate || getCurrentDate()
             }).returning();
 
-            console.log('✅ [StockBatchService] Stock batch created successfully:', stockBatch);
+            // console.log('✅ [StockBatchService] Stock batch created successfully:', stockBatch);
 
             const stockResults = [];
 
-            console.log('🔄 [StockBatchService] Processing automatic unit conversions for', unitConversions.length, 'units');
+            // console.log('🔄 [StockBatchService] Processing automatic unit conversions for', unitConversions.length, 'units');
 
             // Create stock entries for all units based on conversions
             for (const unitConversion of unitConversions) {
-                console.log('📋 [StockBatchService] Processing unit conversion:', unitConversion);
+                // console.log('📋 [StockBatchService] Processing unit conversion:', unitConversion);
 
                 // Verify the product-unit combination exists
                 const existingProductUnit = await tx.select().from(unitInProductTable).where(and(
@@ -113,10 +113,10 @@ export class StockBatchService {
                     throw new Error(`Price not provided for unit ${unitConversion.unitId}`);
                 }
 
-                console.log('🧮 [StockBatchService] Calculated for unit', unitConversion.unitId, ':', {
-                    quantity: calculatedQuantity,
-                    pricePerQuantity: unitPrice.pricePerQuantity
-                });
+                // console.log('🧮 [StockBatchService] Calculated for unit', unitConversion.unitId, ':', {
+                //    quantity: calculatedQuantity,
+                //    pricePerQuantity: unitPrice.pricePerQuantity
+                // });
 
                 const [stock] = await tx.insert(stockTable).values({
                     stockBatchId: stockBatch.id,
@@ -127,11 +127,11 @@ export class StockBatchService {
                     quantity: calculatedQuantity
                 }).returning();
 
-                console.log('✅ [StockBatchService] Stock entry created:', stock);
+                // console.log('✅ [StockBatchService] Stock entry created:', stock);
                 stockResults.push(stock);
             }
 
-            console.log('🎉 [StockBatchService] All stock entries processed successfully. Total:', stockResults.length);
+            // console.log('🎉 [StockBatchService] All stock entries processed successfully. Total:', stockResults.length);
 
             return {
                 batch: stockBatch,
@@ -151,7 +151,7 @@ export class StockBatchService {
      * Finds latest batches and reduces quantity, cascading to older batches if needed
      */
     static async reduceProductStock(productId: string, maintainsId: string, quantityToReduce: number, unitId: string, options?: { force?: boolean, pricePerQuantity?: number }, txArg?: any) {
-        console.log('🚀 [StockBatchService] Starting reduceProductStock:', { productId, maintainsId, quantityToReduce, unitId, options });
+        // console.log('🚀 [StockBatchService] Starting reduceProductStock:', { productId, maintainsId, quantityToReduce, unitId, options });
 
         const runReduce = async (tx: any) => {
             // 1. Get product info for main unit
@@ -234,7 +234,7 @@ export class StockBatchService {
             const totalMainUnitQuantity = stockEntries.reduce((sum: number, s: any) => sum + s.quantity, 0);
             const totalSaleUnitQuantity = Number((totalMainUnitQuantity * (saleUnitConversion.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(3));
 
-            console.log(`📊 Stock Check: Required ${quantityToReduce} ${unitId}, Available ${totalSaleUnitQuantity} ${unitId} (in ${totalMainUnitQuantity} main units)`);
+            // console.log(`📊 Stock Check: Required ${quantityToReduce} ${unitId}, Available ${totalSaleUnitQuantity} ${unitId} (in ${totalMainUnitQuantity} main units)`);
 
             if (totalSaleUnitQuantity < quantityToReduce && !options?.force) {
                 throw new Error(`Insufficient stock for product "${product.name}". Available: ${totalSaleUnitQuantity} ${unitId}, Required: ${quantityToReduce} ${unitId}`);
@@ -273,12 +273,12 @@ export class StockBatchService {
                 // If force enabled and we are at the last batch (or only batch), and we still need more, 
                 // we reduce more than available (driving it negative)
                 if (options?.force && isLastBatch && remainingMainUnitToReduce > reduceFromThisBatch) {
-                    console.log(`⚠️ [StockBatchService] Force reducing remaining ${remainingMainUnitToReduce} from last batch ${batch.id} (Available: ${stockEntry.quantity})`);
+                    // console.log(`⚠️ [StockBatchService] Force reducing remaining ${remainingMainUnitToReduce} from last batch ${batch.id} (Available: ${stockEntry.quantity})`);
                     reduceFromThisBatch = remainingMainUnitToReduce;
                 }
                 
                 if (reduceFromThisBatch > 0) {
-                    console.log(`📉 Reducing ${reduceFromThisBatch} (main unit) from batch ${batch.id}`);
+                    // console.log(`📉 Reducing ${reduceFromThisBatch} (main unit) from batch ${batch.id}`);
 
                     // Update all units in this batch
                     const allUpdates = await StockBatchService.updateAllUnitsInBatch(
@@ -298,7 +298,7 @@ export class StockBatchService {
                 }
             }
 
-            console.log('✅ [StockBatchService] Stock reduction completed successfully');
+            // console.log('✅ [StockBatchService] Stock reduction completed successfully');
             return {
                 productId,
                 maintainsId,
@@ -320,7 +320,7 @@ export class StockBatchService {
      * Now accepts quantity in any unit and automatically reduces all units proportionally
      */
     static async processSaleByStockId(stockId: string, unitId: string, quantityToReduce: number, txArg?: any) {
-        console.log('🚀 [StockBatchService] Starting processSaleByStockId with stockId:', stockId, 'unitId:', unitId, 'quantity:', quantityToReduce);
+        // console.log('🚀 [StockBatchService] Starting processSaleByStockId with stockId:', stockId, 'unitId:', unitId, 'quantity:', quantityToReduce);
 
         const runProcess = async (tx: any) => {
             // Get the specific stock entry
@@ -334,7 +334,7 @@ export class StockBatchService {
                 throw new Error(`Stock entry ${stockId} is not linked to any batch`);
             }
 
-            console.log('✅ [StockBatchService] Stock entry found:', stockEntry);
+            // console.log('✅ [StockBatchService] Stock entry found:', stockEntry);
 
             const [batch] = await tx
                 .select({ id: stockBatchTable.id, deleted: stockBatchTable.deleted })
@@ -351,7 +351,7 @@ export class StockBatchService {
                 throw new Error(`Product or main unit not found for product ID: ${stockEntry.productId}`);
             }
 
-            console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
+            // console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
 
             // Get all unit conversions for this product
             const unitConversions = await tx.select().from(unitConversionTable)
@@ -364,14 +364,14 @@ export class StockBatchService {
                 throw new Error(`Unit conversion not found for product ${stockEntry.productId} or sale unit ${unitId}`);
             }
 
-            console.log('📊 [StockBatchService] Unit conversions found - Main:', mainUnitConversion.conversionFactor, 'Sale unit:', saleUnitConversion.conversionFactor);
+            // console.log('📊 [StockBatchService] Unit conversions found - Main:', mainUnitConversion.conversionFactor, 'Sale unit:', saleUnitConversion.conversionFactor);
 
             // Convert sale unit quantity to main unit quantity
             const mainUnitQuantityToReduce = Number(
                 (quantityToReduce * (mainUnitConversion.conversionFactor / saleUnitConversion.conversionFactor)).toFixed(3)
             );
 
-            console.log('🧮 [StockBatchService] Calculated main unit quantity to reduce:', mainUnitQuantityToReduce);
+            // console.log('🧮 [StockBatchService] Calculated main unit quantity to reduce:', mainUnitQuantityToReduce);
 
             // Check if sufficient quantity is available in the sale unit
             const currentUnitConversion = unitConversions.find((uc: any) => uc.unitId === stockEntry.unitId);
@@ -403,7 +403,7 @@ export class StockBatchService {
                 mainUnitQuantityToReduce
             );
 
-            console.log('✅ [StockBatchService] All units updated successfully');
+            // console.log('✅ [StockBatchService] All units updated successfully');
 
             return {
                 saleUnitId: unitId,
@@ -425,7 +425,7 @@ export class StockBatchService {
      * Now accepts quantity in any unit and automatically reduces all units proportionally
      */
     static async processSaleByBatchAndUnit(batchId: string, unitId: string, quantityToReduce: number, txArg?: any) {
-        console.log('🚀 [StockBatchService] Starting processSaleByBatchAndUnit with batchId:', batchId, 'unitId:', unitId, 'quantity:', quantityToReduce);
+        // console.log('🚀 [StockBatchService] Starting processSaleByBatchAndUnit with batchId:', batchId, 'unitId:', unitId, 'quantity:', quantityToReduce);
 
         const runProcess = async (tx: any) => {
             // Get batch information to find product
@@ -438,7 +438,7 @@ export class StockBatchService {
                 throw new Error(`Batch not found with ID: ${batchId}`);
             }
 
-            console.log('✅ [StockBatchService] Batch found:', batch);
+            // console.log('✅ [StockBatchService] Batch found:', batch);
 
             // Get product information to find main unit
             const [product] = await tx.select().from(productTable).where(eq(productTable.id, batch.productId));
@@ -447,7 +447,7 @@ export class StockBatchService {
                 throw new Error(`Product or main unit not found for product ID: ${batch.productId}`);
             }
 
-            console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
+            // console.log('✅ [StockBatchService] Product found with main unit:', product.mainUnitId);
 
             // Get all unit conversions for this product
             const unitConversions = await tx.select().from(unitConversionTable)
@@ -465,7 +465,7 @@ export class StockBatchService {
                 (quantityToReduce * (mainUnitConversion.conversionFactor / saleUnitConversion.conversionFactor)).toFixed(3)
             );
 
-            console.log('🧮 [StockBatchService] Calculated main unit quantity to reduce:', mainUnitQuantityToReduce);
+            // console.log('🧮 [StockBatchService] Calculated main unit quantity to reduce:', mainUnitQuantityToReduce);
 
             // Get stock entries for this batch and main unit, ordered by creation date (FIFO)
             const stockEntries = await tx.select()
@@ -480,7 +480,7 @@ export class StockBatchService {
                 throw new Error(`No stock found for batch ${batchId} with main unit ${product.mainUnitId}`);
             }
 
-            console.log('📦 [StockBatchService] Found', stockEntries.length, 'stock entries for main unit');
+            // console.log('📦 [StockBatchService] Found', stockEntries.length, 'stock entries for main unit');
 
             // Check if we have enough total stock in the sale unit
             const totalAvailableInMainUnit = stockEntries.reduce((sum: number, stock: any) => sum + stock.quantity, 0);
@@ -500,7 +500,7 @@ export class StockBatchService {
 
                 const reduceFromThis = Math.min(stockEntry.quantity, remainingToReduce);
 
-                console.log('🔄 [StockBatchService] Processing stock entry:', stockEntry.id, 'reducing:', reduceFromThis);
+                // console.log('🔄 [StockBatchService] Processing stock entry:', stockEntry.id, 'reducing:', reduceFromThis);
 
                 // Update all units in the batch proportionally based on this reduction
                 const allUpdates = await StockBatchService.updateAllUnitsInBatch(
@@ -519,7 +519,7 @@ export class StockBatchService {
                 remainingToReduce -= reduceFromThis;
             }
 
-            console.log('✅ [StockBatchService] FIFO sale processing completed');
+            // console.log('✅ [StockBatchService] FIFO sale processing completed');
 
             return {
                 saleUnitId: unitId,
@@ -550,7 +550,7 @@ export class StockBatchService {
         }, 
         txArg?: any
     ) {
-        console.log('🚀 [StockBatchService] Starting updateLatestBatchByProductAndMaintains:', { productId, maintainsId, updateData });
+        // console.log('🚀 [StockBatchService] Starting updateLatestBatchByProductAndMaintains:', { productId, maintainsId, updateData });
         
         const runUpdate = async (tx: any) => {
             // Find the latest active batch for this product and maintains
@@ -566,7 +566,7 @@ export class StockBatchService {
                 .limit(1);
 
             if (latestBatch) {
-                console.log('📦 [StockBatchService] Found latest batch:', latestBatch.id);
+                // console.log('📦 [StockBatchService] Found latest batch:', latestBatch.id);
                 // Check if we can just update this batch (e.g. if prices match or we decide to average/overwrite?)
                 // For simplicity, we will ADD to this batch by increasing quantities.
                 // But we need to be careful about unit prices. 
@@ -643,12 +643,12 @@ export class StockBatchService {
                         .where(eq(stockBatchTable.id, latestBatch.id));
                 }
                 
-                console.log('✅ [StockBatchService] Updated latest batch successfully');
+                // console.log('✅ [StockBatchService] Updated latest batch successfully');
                 return latestBatch;
                 
             } else {
                 // No batch exists, create new one
-                console.log('🆕 [StockBatchService] No active batch found, creating new one');
+                // console.log('🆕 [StockBatchService] No active batch found, creating new one');
                 const { batch } = await StockBatchService.addNewStockBatch({
                     productId,
                     maintainsId,
@@ -677,7 +677,7 @@ export class StockBatchService {
         productId: string,
         mainUnitReductionQuantity: number
     ) {
-        console.log('🔄 [StockBatchService] Starting updateAllUnitsInBatch for batch:', batchId, 'mainUnitReduction:', mainUnitReductionQuantity);
+        // console.log('🔄 [StockBatchService] Starting updateAllUnitsInBatch for batch:', batchId, 'mainUnitReduction:', mainUnitReductionQuantity);
 
         // Get product information to find main unit
         const [product] = await tx.select().from(productTable).where(eq(productTable.id, productId));
@@ -696,7 +696,7 @@ export class StockBatchService {
             throw new Error(`Main unit conversion not found for product ${productId}`);
         }
 
-        console.log('📊 [StockBatchService] Found', unitConversions.length, 'unit conversions');
+        // console.log('📊 [StockBatchService] Found', unitConversions.length, 'unit conversions');
 
         // Get all stock entries in this batch for this product
         const allStocks = await tx.select()
@@ -722,7 +722,7 @@ export class StockBatchService {
                 (mainUnitReductionQuantity * (unitConversion.conversionFactor / mainUnitConversion.conversionFactor)).toFixed(3)
             );
 
-            console.log('🧮 [StockBatchService] Calculated reduction for unit', stock.unitId, ':', reductionForThisUnit);
+            // console.log('🧮 [StockBatchService] Calculated reduction for unit', stock.unitId, ':', reductionForThisUnit);
 
             // Update the stock using atomic operation to prevent race conditions
             const [updatedStock] = await tx.update(stockTable)
@@ -740,7 +740,7 @@ export class StockBatchService {
                 );
             }
 
-            console.log('✅ [StockBatchService] Updated stock for unit', stock.unitId, 'from', stock.quantity, 'to', updatedStock.quantity);
+            // console.log('✅ [StockBatchService] Updated stock for unit', stock.unitId, 'from', stock.quantity, 'to', updatedStock.quantity);
 
             results.push({
                 stock: updatedStock,
@@ -755,7 +755,7 @@ export class StockBatchService {
             await this.softDeleteBatchIfEligible(tx, batchId, productId);
         }
 
-        console.log('🎉 [StockBatchService] All units updated successfully. Total units:', results.length);
+        // console.log('🎉 [StockBatchService] All units updated successfully. Total units:', results.length);
 
         return results;
     }
