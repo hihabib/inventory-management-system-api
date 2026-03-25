@@ -575,7 +575,7 @@ export class SaleService {
             `${d.toString().padStart(2, '0')}/${m.toString().padStart(2, '0')}/${y.toString().padStart(4, '0')}`;
 
         const getDayStartUtc = (y: number, m: number, d: number) =>
-            new Date(Date.UTC(y, m - 1, d, -6, 0, 0, 0));
+            new Date(Date.UTC(y, m - 1, d, -2, 0, 0, 0));
 
         const getNextDayParts = (y: number, m: number, d: number) => {
             const base = new Date(Date.UTC(y, m - 1, d));
@@ -587,7 +587,6 @@ export class SaleService {
         // --- Build day list ---
         const startDateParts = getDateParts(startDate);
         const endDateParts = getDateParts(endDate);
-        const startKey = formatDateToKey(startDateParts.year, startDateParts.month, startDateParts.day);
         const endKey = formatDateToKey(endDateParts.year, endDateParts.month, endDateParts.day);
         const days: Array<{ key: string; y: number; m: number; d: number }> = [];
         let currentYear = startDateParts.year, currentMonth = startDateParts.month, currentDay = startDateParts.day;
@@ -610,6 +609,7 @@ export class SaleService {
             typedCategories = typedCategories.filter(cat => customerCategoryIds.includes(cat.id));
         }
 
+      
         // --- Per-day data fetch helper ---
         const fetchDayData = async (dayStart: Date, dayEndExclusive: Date) => {
             const dayEndInclusive = new Date(dayEndExclusive.getTime() - 1);
@@ -655,11 +655,20 @@ export class SaleService {
 
         // --- Compute result per day ---
         const results: Record<string, any> = {};
+        // Treat provided startDate/endDate as authoritative. For each Dhaka calendar day
+        // intersecting the range, query only the intersection [segmentStart, segmentEndExclusive).
+        const overallEndExclusive = new Date(endDate.getTime() + 1);
         for (const day of days) {
-            const dayStart = getDayStartUtc(day.y, day.m, day.d);
-            const dayEndExclusive = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-
-            const dayData = await fetchDayData(dayStart, dayEndExclusive);
+            const boundaryStart = getDayStartUtc(day.y, day.m, day.d);
+            const boundaryEndExclusive = new Date(boundaryStart.getTime() + 24 * 60 * 60 * 1000);
+            const segmentStart = new Date(Math.max(startDate.getTime(), boundaryStart.getTime()));
+            const segmentEndExclusive = new Date(Math.min(overallEndExclusive.getTime(), boundaryEndExclusive.getTime()));
+            if (segmentEndExclusive <= segmentStart) {
+                continue;
+            }
+            console.log("segmentStart", segmentStart)
+            console.log("segmentEndExclusive", segmentEndExclusive)
+            const dayData = await fetchDayData(segmentStart, segmentEndExclusive);
 
             // Build named discount map: { categoryName -> amount }
             const namedDiscountMap: Record<string, number> = {};
