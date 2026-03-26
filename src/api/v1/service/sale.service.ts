@@ -555,6 +555,11 @@ export class SaleService {
                 sentBy[row.method] = Number(row.amount);
             }
         });
+        console.log("results", results)
+        console.log("cash sent by", sentBy);
+        console.log("startDate", startDate);
+        console.log("endDate", endDate);
+        
         return sentBy;
     }
 
