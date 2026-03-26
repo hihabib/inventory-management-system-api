@@ -14,9 +14,11 @@ async function main() {
     const preview = await client.query(`
       SELECT COUNT(*)::int AS to_update
       FROM cash_sending
-      WHERE EXTRACT(HOUR FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
+      WHERE NOT (
+        EXTRACT(HOUR FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 4
         AND EXTRACT(MINUTE FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
         AND EXTRACT(SECOND FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
+      )
     `)
     console.log('Rows to update', preview.rows[0]?.to_update ?? 0)
     const res = await client.query(`
@@ -25,9 +27,11 @@ async function main() {
         (date_trunc('day', cash_of AT TIME ZONE 'Asia/Dhaka') + interval '4 hours')
         AT TIME ZONE 'Asia/Dhaka'
       )
-      WHERE EXTRACT(HOUR FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
+      WHERE NOT (
+        EXTRACT(HOUR FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 4
         AND EXTRACT(MINUTE FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
         AND EXTRACT(SECOND FROM (cash_of AT TIME ZONE 'Asia/Dhaka')) = 0
+      )
     `)
     console.log('Rows updated', res.rowCount ?? 0)
     await client.query('COMMIT')
@@ -42,4 +46,3 @@ async function main() {
 }
 
 main()
-
