@@ -12,6 +12,9 @@ export class DashboardController {
         const customerCategoryIds = Array.isArray(req.query.customerCategoryIds)
             ? (req.query.customerCategoryIds as string[])
             : (typeof req.query.customerCategoryIds === 'string' ? [req.query.customerCategoryIds] : undefined);
+        const productCategoryIds = Array.isArray(req.query.productCategoryIds)
+            ? (req.query.productCategoryIds as string[])
+            : (typeof req.query.productCategoryIds === 'string' ? [req.query.productCategoryIds] : undefined);
 
         if (!start || !end) {
             return sendResponse(res, 400, "Query params 'start' and 'end' are required");
@@ -26,7 +29,8 @@ export class DashboardController {
             start: start as string,
             end: end as string,
             maintainsIds,
-            customerCategoryIds
+            customerCategoryIds,
+            productCategoryIds
         };
 
         const dashboardData = await DashboardService.getDashboardData(filters);

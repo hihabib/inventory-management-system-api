@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { and, eq, inArray, SQL, sql, gte, lte } from 'drizzle-orm';
+import { and, eq, inArray, SQL, sql, gte, lte, or, ilike } from 'drizzle-orm';
 import { alias, PgTable } from 'drizzle-orm/pg-core';
 import { db } from '../drizzle/db';
 import { Request } from 'express';
@@ -180,6 +180,11 @@ export async function filterWithPaginate<T extends PgTable>(
             } else {
                 whereConditions.push(inArray(tableColumn, values));
             }
+        } else if (column === 'search') {
+            // Handle text search across multiple columns
+            // This should be handled by the service layer with custom where conditions
+            // Skip processing here as it requires OR conditions across specific columns
+            continue;
         } else {
             // Direct column filter
             const tableColumn = table[column as keyof typeof table];
