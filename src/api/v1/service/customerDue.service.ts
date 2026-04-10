@@ -23,7 +23,7 @@ export class CustomerDueService {
         return createdCustomerDue;
     }
 
-    static async updateCustomerDue(id: string, customerDueData: Partial<NewCustomerDue>, updatedBy: string) {
+    static async updateCustomerDue(id: string, customerDueData: Partial<NewCustomerDue>, updatedBy: string, isReplacement: boolean = false, isDiscount: boolean = false) {
         const updatedCustomerDue = await db.transaction(async (tx) => {
             // Check if customer due exists
             const existingCustomerDue = await tx.select().from(customerDueTable).where(eq(customerDueTable.id, id));
@@ -32,11 +32,19 @@ export class CustomerDueService {
             }
 
             const prevPaidAmount = Number(existingCustomerDue[0].paidAmount ?? 0);
+            const prevDiscountAmount = Number(existingCustomerDue[0].discountAmount ?? 0);
+
+            // For discount mode, calculate new discount amount (accumulative)
+            let finalDiscountAmount = prevDiscountAmount;
+            if (isDiscount && customerDueData.discountAmount !== undefined) {
+                finalDiscountAmount = prevDiscountAmount + Number(customerDueData.discountAmount);
+            }
 
             // Update the customer due
             const [updated] = await tx.update(customerDueTable)
                 .set({
                     ...customerDueData,
+                    ...(isDiscount ? { discountAmount: finalDiscountAmount } : {}),
                     updatedAt: getCurrentDate()
                 })
                 .where(eq(customerDueTable.id, id))
@@ -52,7 +60,10 @@ export class CustomerDueService {
                 updatedBy,
                 totalAmount: newTotalAmount,
                 paidAmount: newPaidAmount,
-                collectedAmount: delta,
+                collectedAmount: isDiscount ? 0 : delta,
+                isReplacement,
+                discountAmount: isDiscount ? Number(customerDueData.discountAmount ?? 0) : 0,
+                isDiscount,
                 createdAt: getCurrentDate(),
                 updatedAt: getCurrentDate()
             });
@@ -137,6 +148,7 @@ export class CustomerDueService {
                 maintainsId: customerDueTable.maintainsId,
                 totalAmount: customerDueTable.totalAmount,
                 paidAmount: customerDueTable.paidAmount,
+                discountAmount: customerDueTable.discountAmount,
                 // User details (createdBy)
                 username: userTable.username,
                 fullname: userTable.fullName,
@@ -164,8 +176,15 @@ export class CustomerDueService {
                     totalAmount: customerDueUpdatesTable.totalAmount,
                     paidAmount: customerDueUpdatesTable.paidAmount,
                     collectedAmount: customerDueUpdatesTable.collectedAmount,
+                    isReplacement: customerDueUpdatesTable.isReplacement,
+                    discountAmount: customerDueUpdatesTable.discountAmount,
+                    isDiscount: customerDueUpdatesTable.isDiscount,
+                    // User details for who made the update
+                    updatedByName: userTable.fullName,
+                    updatedByUsername: userTable.username,
                 })
                 .from(customerDueUpdatesTable)
+                .innerJoin(userTable, eq(customerDueUpdatesTable.updatedBy, userTable.id))
                 .where(inArray(customerDueUpdatesTable.customerDueId, ids))
                 .orderBy(asc(customerDueUpdatesTable.createdAt));
 
@@ -201,7 +220,8 @@ export class CustomerDueService {
                 totalNumberOfDue: sql<number>`COUNT(*)`,
                 totalDueCreated: sql<number>`COALESCE(SUM(${customerDueTable.totalAmount}), 0)`,
                 totalDuePaid: sql<number>`COALESCE(SUM(${customerDueTable.paidAmount}), 0)`,
-                totalCurrentDue: sql<number>`COALESCE(SUM(${customerDueTable.totalAmount}), 0) - COALESCE(SUM(${customerDueTable.paidAmount}), 0)`,
+                totalDiscount: sql<number>`COALESCE(SUM(${customerDueTable.discountAmount}), 0)`,
+                totalCurrentDue: sql<number>`COALESCE(SUM(${customerDueTable.totalAmount}), 0) - COALESCE(SUM(${customerDueTable.paidAmount}), 0) - COALESCE(SUM(${customerDueTable.discountAmount}), 0)`,
                 totalDueCustomer: sql<number>`COUNT(DISTINCT ${customerDueTable.customerId})`
             }
         });
@@ -216,6 +236,7 @@ export class CustomerDueService {
                 totalNumberOfDue: Number(summaryRow?.totalNumberOfDue ?? 0),
                 totalDueCreated: Number(summaryRow?.totalDueCreated ?? 0),
                 totalDuePaid: Number(summaryRow?.totalDuePaid ?? 0),
+                totalDiscount: Number(summaryRow?.totalDiscount ?? 0),
                 totalCurrentDue: Number(summaryRow?.totalCurrentDue ?? 0),
                 totalDueCustomer: Number(summaryRow?.totalDueCustomer ?? 0)
             }
@@ -232,6 +253,7 @@ export class CustomerDueService {
             maintainsId: customerDueTable.maintainsId,
             totalAmount: customerDueTable.totalAmount,
             paidAmount: customerDueTable.paidAmount,
+            discountAmount: customerDueTable.discountAmount,
             // User details (createdBy)
             username: userTable.username,
             fullname: userTable.fullName,
@@ -265,8 +287,15 @@ export class CustomerDueService {
                 totalAmount: customerDueUpdatesTable.totalAmount,
                 paidAmount: customerDueUpdatesTable.paidAmount,
                 collectedAmount: customerDueUpdatesTable.collectedAmount,
+                isReplacement: customerDueUpdatesTable.isReplacement,
+                discountAmount: customerDueUpdatesTable.discountAmount,
+                isDiscount: customerDueUpdatesTable.isDiscount,
+                // User details for who made the update
+                updatedByName: userTable.fullName,
+                updatedByUsername: userTable.username,
             })
             .from(customerDueUpdatesTable)
+            .innerJoin(userTable, eq(customerDueUpdatesTable.updatedBy, userTable.id))
             .where(eq(customerDueUpdatesTable.customerDueId, id))
             .orderBy(asc(customerDueUpdatesTable.createdAt));
 
@@ -279,7 +308,8 @@ export class CustomerDueService {
         let whereCondition = and(
             eq(customerDueTable.maintainsId, maintainsId),
             gte(customerDueUpdatesTable.createdAt, startDate),
-            lte(customerDueUpdatesTable.createdAt, endDate)
+            lte(customerDueUpdatesTable.createdAt, endDate),
+            eq(customerDueUpdatesTable.isDiscount, false)
         );
 
         if (excludedProductIds.length > 0) {

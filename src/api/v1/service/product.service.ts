@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, or, ilike, type SQL } from "drizzle-orm";
 import { db } from "../drizzle/db";
 import { NewProduct, productTable } from "../drizzle/schema/product";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
@@ -441,7 +441,7 @@ export class ProductService {
     ) {
         // Handle hierarchical category filtering
         let modifiedFilter = { ...filter };
-        
+
         // Handle isActive filtering
         // If includeInActive is not explicitly true, default to showing only active products
         const includeInActive = modifiedFilter['includeInActive']?.[0] === 'true';
@@ -452,20 +452,36 @@ export class ProductService {
         }
 
         if (filter && filter['productCategory.id']) {
-            const categoryIds = Array.isArray(filter['productCategory.id']) 
-                ? filter['productCategory.id'] 
+            const categoryIds = Array.isArray(filter['productCategory.id'])
+                ? filter['productCategory.id']
                 : [filter['productCategory.id']];
-            
+
             // Get all child categories for each provided category ID
             const allCategoryIds = new Set(categoryIds);
-            
+
             for (const categoryId of categoryIds) {
                 const childCategories = await this.getAllChildCategories(categoryId);
                 childCategories.forEach(id => allCategoryIds.add(id));
             }
-            
+
             // Update the filter to include all category IDs (parent + children)
             modifiedFilter['productCategory.id'] = Array.from(allCategoryIds);
+        }
+
+        // Handle search filtering - extract search term and create OR condition
+        let searchConditions: SQL[] = [];
+        const searchTerm = modifiedFilter['search']?.[0];
+        delete modifiedFilter['search'];
+
+        if (searchTerm && searchTerm.trim()) {
+            const searchPattern = `%${searchTerm.trim()}%`;
+            searchConditions.push(
+                or(
+                    ilike(productTable.name, searchPattern),
+                    ilike(productTable.bengaliName, searchPattern),
+                    ilike(productTable.sku, searchPattern)
+                )!
+            );
         }
 
         // Step 1: Get products with main unit
@@ -475,6 +491,7 @@ export class ProductService {
                 'isDeleted': [false],
                 ...modifiedFilter,
             },
+            where: searchConditions.length > 0 ? and(...searchConditions) : undefined,
             orderBy: asc(productTable.sku),
             joins: [
                 {

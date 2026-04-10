@@ -35,9 +35,18 @@ export class CustomerDueController {
     static updateCustomerDue = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id } = req.params;
         const { id: updatedBy } = req.user;
-        const customerDueData: Partial<NewCustomerDue> = req.body;
-        const updatedCustomerDue = await CustomerDueService.updateCustomerDue(id, customerDueData, updatedBy);
-        
+        const { isReplacement, isDiscount, ...customerDueData }: {
+            isReplacement?: boolean;
+            isDiscount?: boolean;
+        } & Partial<NewCustomerDue> = req.body;
+        const updatedCustomerDue = await CustomerDueService.updateCustomerDue(
+            id,
+            customerDueData,
+            updatedBy,
+            isReplacement || false,
+            isDiscount || false
+        );
+
         sendResponse(res, 200, "Customer due record updated successfully", updatedCustomerDue);
     });
 

@@ -12,6 +12,7 @@ export const customerDueTable = pgTable('customer_due', {
     maintainsId: uuid('maintains_id').references(() => maintainsTable.id).notNull(),
     totalAmount: numeric('total_amount', { mode: 'number', scale: 2 }).notNull(),
     paidAmount: numeric('paid_amount', { mode: 'number', scale: 2 }).notNull(),
+    discountAmount: numeric('discount_amount', { mode: 'number', scale: 2 }).notNull().default(0),
 })
 
 export type CustomerDueTable = typeof customerDueTable.$inferSelect;
