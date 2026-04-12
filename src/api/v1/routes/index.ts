@@ -17,6 +17,7 @@ import stockBatchRoutes from './stockBatch.route'
 import expenseRoutes from './expense.route'
 import customerDueRoutes from './customerDue.route'
 import readyProductRoutes from './readyProduct.route'
+import userMetaRoutes from './user-meta.route'
 const router = Router();
 
 router.use("/users", userRoutes);
@@ -36,5 +37,6 @@ router.use("/delivery-histories", [authMiddleware], deliveryHistoryRoutes);
 router.use("/expenses", [authMiddleware], expenseRoutes);
 router.use("/customer-due", customerDueRoutes);
 router.use("/ready-products", [authMiddleware], readyProductRoutes);
+router.use("/user-meta", userMetaRoutes);
 
 export default router;
