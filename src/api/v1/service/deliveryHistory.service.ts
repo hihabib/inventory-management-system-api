@@ -6,8 +6,6 @@ import { maintainsTable } from "../drizzle/schema/maintains";
 import { productTable } from "../drizzle/schema/product";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
-import { readyProductTable } from "../drizzle/schema/readyProduct";
-import { readyProductAllocationTable } from "../drizzle/schema/readyProductAllocation";
 import { NewStock, stockTable } from "../drizzle/schema/stock";
 import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { unitTable } from "../drizzle/schema/unit";
@@ -16,6 +14,7 @@ import { AppError } from "../utils/AppError";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { getCurrentDate } from "../utils/timezone";
 import { StockBatchService } from "./stockBatch.service";
+import { StockAllocationAuditService } from "./stockAllocationAudit.service";
 
 export class DeliveryHistoryService {
     private static async validateSenderStock(tx: any, productId: string, senderMaintainsId: string, quantity: number, unitId: string) {
@@ -138,116 +137,13 @@ export class DeliveryHistoryService {
             // Process ready product adjustments and stock management for each created delivery history
             for (const created of createdDeliveryHistories) {
                 if (created.status === "Order-Shipped" && created.sentQuantity && created.sentQuantity > 0) {
-                    const [product] = await tx.select().from(productTable).where(eq(productTable.id, created.productId));
-                    if (!product || !product.mainUnitId) {
-                        throw new Error(`Product or main unit not found for product ${created.productId}`);
-                    }
-
-                    const unitConversions = await tx.select().from(unitConversionTable).where(eq(unitConversionTable.productId, created.productId));
-                    const mainConv = unitConversions.find((uc: any) => uc.unitId === product.mainUnitId);
-                    const sentConv = unitConversions.find((uc: any) => uc.unitId === created.unitId);
-                    if (!mainConv || !sentConv) {
-                        throw new Error(`Unit conversion not found for product ${created.productId}`);
-                    }
-
-                    const sentMainQty = Number((Number(created.sentQuantity) * (mainConv.conversionFactor / sentConv.conversionFactor)).toFixed(3));
-
-                    const readyRows = await tx
-                        .select()
-                        .from(readyProductTable)
-                        .where(and(eq(readyProductTable.productId, created.productId), eq(readyProductTable.isDeleted, false)))
-                        .orderBy(desc(readyProductTable.createdAt));
-
-                    let totalProbable = 0;
-                    for (const row of readyRows) {
-                        totalProbable += Number(row.probableRemainingQuantity);
-                    }
-
-                    const allocations: { readyProductId: string; allocatedQuantityInMainUnit: number; createdNewReadyProductRow: boolean }[] = [];
-
-                    if (sentMainQty <= totalProbable + 0.0001) {
-                        let remaining = sentMainQty;
-                        for (const row of readyRows) {
-                            if (remaining <= 0) break;
-                            const available = Number(row.probableRemainingQuantity);
-                            if (available <= 0) continue;
-                            const consume = Math.min(available, remaining);
-                            const newProbable = Number((available - consume).toFixed(3));
-                            remaining = Number((remaining - consume).toFixed(3));
-                            if (consume > 0) {
-                                allocations.push({
-                                    readyProductId: row.id,
-                                    allocatedQuantityInMainUnit: consume,
-                                    createdNewReadyProductRow: false
-                                });
-                            }
-                            await tx
-                                .update(readyProductTable)
-                                .set({
-                                    probableRemainingQuantity: newProbable,
-                                    updatedBy: created.createdBy,
-                                    updatedAt: getCurrentDate()
-                                })
-                                .where(eq(readyProductTable.id, row.id));
-                        }
-                    } else {
-                        const remainingBeyondProbable = Number((sentMainQty - totalProbable).toFixed(3));
-
-                        for (const row of readyRows) {
-                            const currentProbable = Number(row.probableRemainingQuantity);
-                            if (currentProbable > 0) {
-                                allocations.push({
-                                    readyProductId: row.id,
-                                    allocatedQuantityInMainUnit: currentProbable,
-                                    createdNewReadyProductRow: false
-                                });
-                                await tx
-                                    .update(readyProductTable)
-                                    .set({
-                                        probableRemainingQuantity: 0,
-                                        updatedBy: created.createdBy,
-                                        updatedAt: getCurrentDate()
-                                    })
-                                    .where(eq(readyProductTable.id, row.id));
-                            }
-                        }
-
-                        if (remainingBeyondProbable > 0) {
-                            const [newRow] = await tx
-                                .insert(readyProductTable)
-                                .values({
-                                    productId: created.productId,
-                                    quantityInMainUnit: remainingBeyondProbable,
-                                    probableRemainingQuantity: 0,
-                                    note: "Added via system",
-                                    isDeleted: false,
-                                    createdBy: created.createdBy,
-                                    updatedBy: created.createdBy,
-                                    createdAt: getCurrentDate(),
-                                    updatedAt: getCurrentDate()
-                                })
-                                .returning();
-                            allocations.push({
-                                readyProductId: newRow.id,
-                                allocatedQuantityInMainUnit: remainingBeyondProbable,
-                                createdNewReadyProductRow: true
-                            });
-                        }
-                    }
-
-                    if (allocations.length > 0) {
-                        const now = getCurrentDate();
-                        await tx.insert(readyProductAllocationTable).values(
-                            allocations.map((alloc) => ({
-                                deliveryHistoryId: created.id,
-                                readyProductId: alloc.readyProductId,
-                                allocatedQuantityInMainUnit: alloc.allocatedQuantityInMainUnit,
-                                createdNewReadyProductRow: alloc.createdNewReadyProductRow,
-                                createdAt: now,
-                                updatedAt: now
-                            }))
-                        );
-                    }
+                    await StockAllocationAuditService.handleOrderShipped(tx, created, created.createdBy);
+                }
+                if (created.status === 'Order-Completed') {
+                    await StockAllocationAuditService.handleOrderCompleted(tx, created, created.createdBy);
+                }
+                if (created.status === 'Return-Completed') {
+                    await StockAllocationAuditService.handleReturnCompleted(tx, created, created.createdBy);
                 }
 
                 // If status is 'Order-Completed', prepare stock data to add
@@ -524,7 +420,7 @@ export class DeliveryHistoryService {
         });
     }
 
-    static async updateDeliveryHistory(id: string, deliveryHistoryData: Partial<NewDeliveryHistory>) {
+    static async updateDeliveryHistory(id: string, deliveryHistoryData: Partial<NewDeliveryHistory>, userId: string) {
         const updatedDeliveryHistory = await db.transaction(async (tx) => {
             // Check if delivery history exists
             const existingDeliveryHistory = await tx.select().from(deliveryHistoryTable).where(eq(deliveryHistoryTable.id, id));
@@ -612,6 +508,26 @@ export class DeliveryHistoryService {
             // Collect stock operations
             const stocksToReduce: Array<{ maintainsId: string, productId: string, unitId: string, quantity: number, options?: { force?: boolean, pricePerQuantity?: number } }> = [];
             const stocksToAdd: NewStock[] = [];
+
+            // Ready product allocation handling for status transitions
+            if (deliveryHistoryData.status) {
+                if (deliveryHistoryData.status === 'Order-Shipped' && existing.status !== 'Order-Shipped'
+                    && existing.status !== 'Order-Completed' && existing.status !== 'Order-Cancelled') {
+                    await StockAllocationAuditService.handleOrderShipped(tx, updated, userId);
+                }
+                if (deliveryHistoryData.status === 'Order-Completed' && existing.status !== 'Order-Completed') {
+                    await StockAllocationAuditService.handleOrderCompleted(tx, updated, userId);
+                }
+                if (deliveryHistoryData.status === 'Order-Cancelled' && existing.status === 'Order-Shipped') {
+                    await StockAllocationAuditService.handleOrderCancelled(tx, updated, userId);
+                }
+                if (deliveryHistoryData.status === 'Order-Placed' && existing.status === 'Order-Shipped') {
+                    await StockAllocationAuditService.handleRevertToPlaced(tx, id, userId);
+                }
+                if (deliveryHistoryData.status === 'Return-Completed') {
+                    await StockAllocationAuditService.handleReturnCompleted(tx, updated, userId);
+                }
+            }
 
             // 1. Transfer-Completed: Prepare Reduce Sender Stock
             if (deliveryHistoryData.status === 'Transfer-Completed' && existing.status !== 'Transfer-Completed') {
@@ -771,7 +687,7 @@ export class DeliveryHistoryService {
             unitId: string;
             pricePerQuantity: number;
         }[]
-    }>>) {
+    }>>, userId: string) {
         const updatedDeliveryHistories = await db.transaction(async (tx) => {
             const results = [];
             const stocksToAdd: (NewStock & { sourceStatus?: string })[] = [];
@@ -910,250 +826,26 @@ export class DeliveryHistoryService {
                     }
 
                     if (receivedQty !== null && receivedQty !== undefined && Number(receivedQty) > 0) {
-                        const [product] = await tx.select().from(productTable).where(eq(productTable.id, updated.productId));
-                        if (product && product.mainUnitId) {
-                            const unitConversions = await tx
-                                .select()
-                                .from(unitConversionTable)
-                                .where(eq(unitConversionTable.productId, updated.productId));
-                            const mainConv = unitConversions.find((uc: any) => uc.unitId === product.mainUnitId);
-                            const recConv = unitConversions.find((uc: any) => uc.unitId === updated.unitId);
-                            if (mainConv && recConv) {
-                                const receivedMainQty = Number(
-                                    (Number(receivedQty) * (mainConv.conversionFactor / recConv.conversionFactor)).toFixed(3)
-                                );
-
-                                const allocations = await tx
-                                    .select()
-                                    .from(readyProductAllocationTable)
-                                    .where(eq(readyProductAllocationTable.deliveryHistoryId, id))
-                                    .orderBy(asc(readyProductAllocationTable.createdAt));
-
-                                let remaining = receivedMainQty;
-                                let totalAllocated = 0;
-                                for (const alloc of allocations) {
-                                    totalAllocated += Number(alloc.allocatedQuantityInMainUnit);
-                                }
-
-                                if (allocations.length > 0) {
-                                    for (const alloc of allocations) {
-                                        if (remaining <= 0) break;
-                                        const allowed = Number(alloc.allocatedQuantityInMainUnit);
-                                        if (allowed <= 0) continue;
-                                        const reduce = Math.min(allowed, remaining);
-                                        const [rpRow] = await tx
-                                            .select()
-                                            .from(readyProductTable)
-                                            .where(eq(readyProductTable.id, alloc.readyProductId));
-                                        if (!rpRow) {
-                                            throw new Error(
-                                                `Ready product row '${alloc.readyProductId}' not found while completing order '${id}'`
-                                            );
-                                        }
-                                        const currentQty = Number(rpRow.quantityInMainUnit);
-                                        const newQty = Number((currentQty - reduce).toFixed(3));
-                                        if (newQty < -0.0001) {
-                                            throw new Error(
-                                                `Ready product quantity would become negative for row '${alloc.readyProductId}'`
-                                            );
-                                        }
-                                        const adjustedQty = newQty < 0 ? 0 : newQty;
-                                        const currentProbable = Number(rpRow.probableRemainingQuantity);
-                                        const newProbable = Math.min(currentProbable, adjustedQty);
-                                        await tx
-                                            .update(readyProductTable)
-                                            .set({
-                                                quantityInMainUnit: adjustedQty,
-                                                probableRemainingQuantity: newProbable,
-                                                updatedBy: updated.createdBy,
-                                                updatedAt: getCurrentDate()
-                                            })
-                                            .where(eq(readyProductTable.id, alloc.readyProductId));
-                                        remaining = Number((remaining - reduce).toFixed(3));
-                                    }
-
-                                    if (remaining > 0.0001) {
-                                        console.warn(
-                                            "[DeliveryHistoryService#bulkUpdate] Warning: received quantity exceeds allocated ready products",
-                                            { id, receivedMainQty, totalAllocated }
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                        await StockAllocationAuditService.handleOrderCompleted(tx, updated, userId);
                     }
                 }
 
                 // Handle transition from non-shipped to Order-Shipped (allocate from ready products)
                 if (updateData.status === 'Order-Shipped' && existing.status !== 'Order-Shipped') {
-                    const [product] = await tx.select().from(productTable).where(eq(productTable.id, updated.productId));
-                    if (!product || !product.mainUnitId) {
-                        throw new Error(`Product or main unit not found for product ${updated.productId}`);
-                    }
-
-                    const unitConversions = await tx
-                        .select()
-                        .from(unitConversionTable)
-                        .where(eq(unitConversionTable.productId, updated.productId));
-                    const mainConv = unitConversions.find((uc: any) => uc.unitId === product.mainUnitId);
-                    const sentConv = unitConversions.find((uc: any) => uc.unitId === updated.unitId);
-                    if (!mainConv || !sentConv) {
-                        throw new Error(`Unit conversion not found for product ${updated.productId}`);
-                    }
-
                     const sentQty = updated.sentQuantity;
                     if (sentQty && Number(sentQty) > 0) {
-                        const sentMainQty = Number(
-                            (Number(sentQty) * (mainConv.conversionFactor / sentConv.conversionFactor)).toFixed(3)
-                        );
-
-                        const readyRows = await tx
-                            .select()
-                            .from(readyProductTable)
-                            .where(
-                                and(
-                                    eq(readyProductTable.productId, updated.productId),
-                                    eq(readyProductTable.isDeleted, false)
-                                )
-                            )
-                            .orderBy(desc(readyProductTable.createdAt));
-
-                        let totalProbable = 0;
-                        for (const row of readyRows) {
-                            totalProbable += Number(row.probableRemainingQuantity);
-                        }
-
-                        const allocations: {
-                            readyProductId: string;
-                            allocatedQuantityInMainUnit: number;
-                            createdNewReadyProductRow: boolean;
-                        }[] = [];
-
-                        if (sentMainQty <= totalProbable + 0.0001) {
-                            let remaining = sentMainQty;
-                            for (const row of readyRows) {
-                                if (remaining <= 0) break;
-                                const available = Number(row.probableRemainingQuantity);
-                                if (available <= 0) continue;
-                                const consume = Math.min(available, remaining);
-                                const newProbable = Number((available - consume).toFixed(3));
-                                remaining = Number((remaining - consume).toFixed(3));
-                                if (consume > 0) {
-                                    allocations.push({
-                                        readyProductId: row.id,
-                                        allocatedQuantityInMainUnit: consume,
-                                        createdNewReadyProductRow: false
-                                    });
-                                }
-                                await tx
-                                    .update(readyProductTable)
-                                    .set({
-                                        probableRemainingQuantity: newProbable,
-                                        updatedBy: updated.createdBy,
-                                        updatedAt: getCurrentDate()
-                                    })
-                                    .where(eq(readyProductTable.id, row.id));
-                            }
-                        } else {
-                            const remainingBeyondProbable = Number((sentMainQty - totalProbable).toFixed(3));
-
-                            for (const row of readyRows) {
-                                const currentProbable = Number(row.probableRemainingQuantity);
-                                if (currentProbable > 0) {
-                                    allocations.push({
-                                        readyProductId: row.id,
-                                        allocatedQuantityInMainUnit: currentProbable,
-                                        createdNewReadyProductRow: false
-                                    });
-                                    await tx
-                                        .update(readyProductTable)
-                                        .set({
-                                            probableRemainingQuantity: 0,
-                                            updatedBy: updated.createdBy,
-                                            updatedAt: getCurrentDate()
-                                        })
-                                        .where(eq(readyProductTable.id, row.id));
-                                }
-                            }
-
-                            if (remainingBeyondProbable > 0) {
-                                const [newRow] = await tx
-                                    .insert(readyProductTable)
-                                    .values({
-                                        productId: updated.productId,
-                                        quantityInMainUnit: remainingBeyondProbable,
-                                        probableRemainingQuantity: 0,
-                                        note: "Added via system",
-                                        isDeleted: false,
-                                        createdBy: updated.createdBy,
-                                        updatedBy: updated.createdBy,
-                                        createdAt: getCurrentDate(),
-                                        updatedAt: getCurrentDate()
-                                    })
-                                    .returning();
-                                allocations.push({
-                                    readyProductId: newRow.id,
-                                    allocatedQuantityInMainUnit: remainingBeyondProbable,
-                                    createdNewReadyProductRow: true
-                                });
-                            }
-                        }
-
-                        if (allocations.length > 0) {
-                            const now = getCurrentDate();
-                            await tx.insert(readyProductAllocationTable).values(
-                                allocations.map((alloc) => ({
-                                    deliveryHistoryId: id,
-                                    readyProductId: alloc.readyProductId,
-                                    allocatedQuantityInMainUnit: alloc.allocatedQuantityInMainUnit,
-                                    createdNewReadyProductRow: alloc.createdNewReadyProductRow,
-                                    createdAt: now,
-                                    updatedAt: now
-                                }))
-                            );
-                        }
+                        await StockAllocationAuditService.handleOrderShipped(tx, updated, updated.createdBy);
                     }
                 }
 
                 // Handle transition from Order-Shipped back to Order-Placed (undo ready product effects)
                 if (updateData.status === 'Order-Placed' && existing.status === 'Order-Shipped') {
-                    const allocations = await tx
-                        .select()
-                        .from(readyProductAllocationTable)
-                        .where(eq(readyProductAllocationTable.deliveryHistoryId, id));
+                    await StockAllocationAuditService.handleRevertToPlaced(tx, id, updated.createdBy);
+                }
 
-                    for (const alloc of allocations) {
-                        const [rpRow] = await tx
-                            .select()
-                            .from(readyProductTable)
-                            .where(eq(readyProductTable.id, alloc.readyProductId));
-                        if (!rpRow) continue;
-
-                        if (alloc.createdNewReadyProductRow) {
-                            await tx
-                                .delete(readyProductTable)
-                                .where(eq(readyProductTable.id, alloc.readyProductId));
-                        } else {
-                            const currentProbable = Number(rpRow.probableRemainingQuantity);
-                            const currentQty = Number(rpRow.quantityInMainUnit);
-                            const restoredProbable = Math.min(
-                                currentProbable + Number(alloc.allocatedQuantityInMainUnit),
-                                currentQty
-                            );
-                            await tx
-                                .update(readyProductTable)
-                                .set({
-                                    probableRemainingQuantity: Number(restoredProbable.toFixed(3)),
-                                    updatedBy: updated.createdBy,
-                                    updatedAt: getCurrentDate()
-                                })
-                                .where(eq(readyProductTable.id, alloc.readyProductId));
-                        }
-                    }
-
-                    await tx
-                        .delete(readyProductAllocationTable)
-                        .where(eq(readyProductAllocationTable.deliveryHistoryId, id));
+                // Handle Order-Cancelled from Order-Shipped
+                if (updateData.status === 'Order-Cancelled' && existing.status === 'Order-Shipped') {
+                    await StockAllocationAuditService.handleOrderCancelled(tx, updated, updated.createdBy);
                 }
 
                 // If status is being updated to 'Return-Completed', prepare stock data to reduce

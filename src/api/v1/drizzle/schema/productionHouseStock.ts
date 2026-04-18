@@ -2,11 +2,17 @@ import { pgTable, uuid, numeric, timestamp, text, boolean } from "drizzle-orm/pg
 import { productTable } from "./product";
 import { userTable } from "./user";
 
-export const readyProductTable = pgTable("ready_product", {
+/**
+ * Production House Stock Table
+ * Tracks stock available at the production house ready to be sent to outlets.
+ *
+ * Renamed from: ready_product
+ */
+export const productionHouseStockTable = pgTable("production_house_stock", {
     id: uuid("id").defaultRandom().primaryKey(),
     productId: uuid("product_id").references(() => productTable.id).notNull(),
-    quantityInMainUnit: numeric("quantity_in_main_unit", { mode: "number", scale: 3 }).notNull(),
-    probableRemainingQuantity: numeric("probable_remaining_quantity", { mode: "number", scale: 3 }).notNull(),
+    totalQuantity: numeric("total_quantity", { mode: "number", scale: 3 }).notNull().default(0),
+    committedQuantity: numeric("committed_quantity", { mode: "number", scale: 3 }).notNull().default(0),
     note: text("note"),
     isDeleted: boolean("is_deleted").notNull().default(false),
     createdBy: uuid("created_by").references(() => userTable.id).notNull(),
@@ -15,6 +21,5 @@ export const readyProductTable = pgTable("ready_product", {
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
 
-export type ReadyProductTable = typeof readyProductTable.$inferSelect;
-export type NewReadyProduct = typeof readyProductTable.$inferInsert;
-
+export type ProductionHouseStockTable = typeof productionHouseStockTable.$inferSelect;
+export type NewProductionHouseStock = typeof productionHouseStockTable.$inferInsert;

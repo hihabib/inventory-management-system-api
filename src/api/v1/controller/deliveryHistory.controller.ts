@@ -72,7 +72,7 @@ export class DeliveryHistoryController {
         const deliveryHistoryData = req.body as Partial<NewDeliveryHistory & {
             latestUnitPriceData?: { unitId: string; pricePerQuantity: number }[]
         }>;
-        const updatedDeliveryHistory = await DeliveryHistoryService.updateDeliveryHistory(id, deliveryHistoryData);
+        const updatedDeliveryHistory = await DeliveryHistoryService.updateDeliveryHistory(id, deliveryHistoryData, req.user.id);
         sendResponse(res, 200, 'Transaction updated successfully', updatedDeliveryHistory);
     })
 
@@ -85,7 +85,7 @@ export class DeliveryHistoryController {
                 pricePerQuantity: number;
             }[]
         }>>;
-        const updatedDeliveryHistories = await DeliveryHistoryService.bulkUpdateDeliveryHistory(deliveryHistoryData);
+        const updatedDeliveryHistories = await DeliveryHistoryService.bulkUpdateDeliveryHistory(deliveryHistoryData, req.user.id);
         sendResponse(res, 200, 'Transactions updated successfully', updatedDeliveryHistories);
     })
 

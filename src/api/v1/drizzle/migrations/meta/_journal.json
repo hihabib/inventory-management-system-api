@@ -41,7 +41,7 @@
       "idx": 5,
       "version": "7",
       "when": 1766162183964,
-      "tag": "0005_lame_spacker_dave",
+      "tag": "0005_numeric_ids_for_expense_cash_sending",
       "breakpoints": true
     },
     {
@@ -84,6 +84,13 @@
       "version": "7",
       "when": 1766219388608,
       "tag": "0011_green_tomas",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1776353000000,
+      "tag": "0015_safe_production_migration",
       "breakpoints": true
     }
   ]
