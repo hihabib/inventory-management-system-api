@@ -1,5 +1,4 @@
 import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
-import { userTable } from "./user";
 
 /**
  * Stock Configuration Table
@@ -12,7 +11,6 @@ export const stockConfigTable = pgTable("stock_config", {
     key: text("key").notNull().unique(),
     value: text("value").notNull(),
     description: text("description"),
-    updatedBy: uuid("updated_by").references(() => userTable.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
 });
