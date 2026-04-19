@@ -93,7 +93,7 @@ export class ProductionHouseStockController {
         for (const item of items) {
             const [updated] = await db
                 .update(stockConfigTable)
-                .set({ value: item.value, updatedBy: userId, updatedAt: new Date() })
+                .set({ value: item.value, updatedAt: new Date() })
                 .where(eq(stockConfigTable.key, item.key))
                 .returning();
             if (updated) {
