@@ -316,6 +316,7 @@ export class DeliveryHistoryService {
 
             // If there are stocks to replace, remove all old stock and create new batch using provided latestUnitPriceData
             if (stocksToReplace.length > 0) {
+                console.log("stocks are replacing", stocksToReplace);
                 try {
                     // console.log("stocks are replacing", stocksToReplace);
 
@@ -389,7 +390,7 @@ export class DeliveryHistoryService {
                             unitPrices
                         }, tx);
 
-                        if (oldBatchIds.length > 0 && Number(mainUnitQuantity) > 0) {
+                        if (oldBatchIds.length > 0) {
                             await tx
                                 .update(stockBatchTable)
                                 .set({ deleted: true, updatedAt: getCurrentDate() })
