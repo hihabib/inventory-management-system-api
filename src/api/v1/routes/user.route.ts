@@ -6,6 +6,7 @@ const router = Router();
 
 router.post('/register', UserController.register);
 router.post('/signin', UserController.signIn);
+router.post('/', authMiddleware, UserController.register);
 router.get('/', authMiddleware, UserController.getUsers);
 router.get('/profile', authMiddleware, UserController.getProfile);
 router.get('/:id', authMiddleware, UserController.getUserById);
