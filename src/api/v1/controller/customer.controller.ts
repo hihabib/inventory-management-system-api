@@ -10,6 +10,9 @@ export class CustomerController {
     static createCustomer = requestHandler(async (req: AuthRequest, res: Response) => {
         const { id: createdBy } = req.user;
         const { name, email, phone, about, categoryId, discountAmount, discountType } = req.body as NewCustomer;
+        if (!phone) {
+            return sendResponse(res, 400, 'Phone number is required');
+        }
         const createdCustomer = await CustomerService.createCustomer({
             name,
             email,

@@ -5,6 +5,11 @@ import { AppError } from '../utils/AppError';
 import { getCurrentDate } from '../utils/timezone';
 import { productTable } from '../drizzle/schema/product';
 
+// Stored as a single user_metadata row with this key. Value is a partial
+// boolean map keyed by the frontend's NAV_PERMISSION_KEYS. Missing keys are
+// treated as allowed (true).
+export const NAV_PERMISSIONS_KEY = 'nav_permissions';
+
 export class UserMetaService {
   // Get user metadata by keys (or all if no keys provided)
   static async getUserMeta(userId: string, keys?: string[]): Promise<Record<string, any>> {
@@ -142,6 +147,24 @@ export class UserMetaService {
     });
 
     return result;
+  }
+
+  // Read the navigation permissions for an arbitrary user (admin-only endpoint
+  // exposes this; the loader treats a missing row as "no overrides").
+  static async getNavPermissionsForUser(userId: string): Promise<Record<string, boolean> | null> {
+    const rows = await db.select({ value: userMetaTable.value })
+      .from(userMetaTable)
+      .where(and(eq(userMetaTable.userId, userId), eq(userMetaTable.key, NAV_PERMISSIONS_KEY)))
+      .limit(1);
+    if (!rows.length) return null;
+    const value = rows[0].value;
+    return (value && typeof value === 'object') ? value as Record<string, boolean> : null;
+  }
+
+  // Overwrite the navigation permissions for an arbitrary user. The value is
+  // expected to be a flat { [key: string]: boolean } map.
+  static async setNavPermissionsForUser(userId: string, permissions: Record<string, boolean>) {
+    return this.setUserMeta(userId, NAV_PERMISSIONS_KEY, permissions, false);
   }
 
   // Delete user metadata by key

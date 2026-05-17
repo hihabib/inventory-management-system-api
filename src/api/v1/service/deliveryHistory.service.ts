@@ -10,6 +10,7 @@ import { NewStock, stockTable } from "../drizzle/schema/stock";
 import { stockBatchTable } from "../drizzle/schema/stockBatch";
 import { unitTable } from "../drizzle/schema/unit";
 import { unitConversionTable } from "../drizzle/schema/unitConversion";
+import { userTable } from "../drizzle/schema/user";
 import { AppError } from "../utils/AppError";
 import { FilterOptions, PaginationOptions, filterWithPaginate } from "../utils/filterWithPaginate";
 import { getCurrentDate } from "../utils/timezone";
@@ -1264,6 +1265,11 @@ export class DeliveryHistoryService {
                     table: productCategoryTable,
                     alias: "productCategory",
                     condition: eq(productCategoryInProductTable.productCategoryId, productCategoryTable.id)
+                },
+                {
+                    table: userTable,
+                    alias: "createdByUser",
+                    condition: eq(deliveryHistoryTable.createdBy, userTable.id)
                 }
             ],
             groupBy: [
@@ -1288,9 +1294,23 @@ export class DeliveryHistoryService {
                 deliveryHistoryTable.receivedAt,
                 deliveryHistoryTable.cancelledAt,
                 deliveryHistoryTable.latestUnitPriceData,
-                productTable.sku
+                productTable.sku,
+                userTable.id,
+                userTable.username,
+                userTable.email
             ],
-            select: { ...deliveryHistoryTable },
+            select: {
+                ...deliveryHistoryTable,
+                createdBy: sql`CASE
+                    WHEN ${userTable.id} IS NOT NULL THEN
+                        json_build_object(
+                            'id', ${userTable.id},
+                            'username', ${userTable.username},
+                            'email', ${userTable.email}
+                        )
+                    ELSE NULL
+                END`
+            },
             orderBy: asc(sql`
                 CASE 
                     WHEN ${productTable.sku} ~ '^[0-9]+\.?[0-9]*$' 

@@ -7,6 +7,10 @@ export interface JWTPayload {
   username: string;
   email: string;
   roleId: string;
+  // Identifier of the server-side session row. The auth middleware uses this
+  // to verify that the session hasn't been revoked (logout, force-logout,
+  // user-deleted).
+  sessionId?: string;
 }
 
 export const generateToken = (payload: JWTPayload): string => {

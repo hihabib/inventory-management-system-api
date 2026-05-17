@@ -34,23 +34,34 @@ export class CustomerDueService {
             const prevPaidAmount = Number(existingCustomerDue[0].paidAmount ?? 0);
             const prevDiscountAmount = Number(existingCustomerDue[0].discountAmount ?? 0);
 
-            // For discount mode, calculate new discount amount (accumulative)
-            let finalDiscountAmount = prevDiscountAmount;
-            if (isDiscount && customerDueData.discountAmount !== undefined) {
-                finalDiscountAmount = prevDiscountAmount + Number(customerDueData.discountAmount);
-            }
+            // The request may carry both a new paid amount AND a discount increment in the
+            // same call. `discountAmount` in the body is always treated as the *increment*
+            // to add to the existing discount (kept for backward compatibility with the
+            // previous "discount mode" semantics).
+            const discountIncrementRaw = customerDueData.discountAmount !== undefined
+                ? Number(customerDueData.discountAmount)
+                : 0;
+            const hasDiscountIncrement = discountIncrementRaw > 0;
+            const finalDiscountAmount = hasDiscountIncrement
+                ? prevDiscountAmount + discountIncrementRaw
+                : prevDiscountAmount;
 
-            // Update the customer due
+            // Build the patch: only override discountAmount when there's an increment;
+            // otherwise leave it untouched. paidAmount is passed through as-is when
+            // present in customerDueData.
+            const { discountAmount: _ignoredDiscount, ...restPatch } = customerDueData;
+
             const [updated] = await tx.update(customerDueTable)
                 .set({
-                    ...customerDueData,
-                    ...(isDiscount ? { discountAmount: finalDiscountAmount } : {}),
+                    ...restPatch,
+                    ...(hasDiscountIncrement ? { discountAmount: finalDiscountAmount } : {}),
                     updatedAt: getCurrentDate()
                 })
                 .where(eq(customerDueTable.id, id))
                 .returning();
 
-            // Insert a history row in customer_due_updates
+            // Insert a single history row in customer_due_updates that captures whatever
+            // changed — collection delta and/or discount increment.
             const newPaidAmount = Number(updated.paidAmount ?? 0);
             const newTotalAmount = Number(updated.totalAmount ?? 0);
             const delta = Number((newPaidAmount - prevPaidAmount).toFixed(2));
@@ -60,10 +71,12 @@ export class CustomerDueService {
                 updatedBy,
                 totalAmount: newTotalAmount,
                 paidAmount: newPaidAmount,
-                collectedAmount: isDiscount ? 0 : delta,
+                collectedAmount: delta,
                 isReplacement,
-                discountAmount: isDiscount ? Number(customerDueData.discountAmount ?? 0) : 0,
-                isDiscount,
+                discountAmount: hasDiscountIncrement ? discountIncrementRaw : 0,
+                // Mark the history row as a discount entry when a discount was given,
+                // regardless of the legacy `isDiscount` flag from the request.
+                isDiscount: hasDiscountIncrement || isDiscount,
                 createdAt: getCurrentDate(),
                 updatedAt: getCurrentDate()
             });
@@ -143,7 +156,15 @@ export class CustomerDueService {
                 id: customerDueTable.id,
                 createdAt: customerDueTable.createdAt,
                 updatedAt: customerDueTable.updatedAt,
-                createdBy: customerDueTable.createdBy,
+                createdBy: sql`CASE
+                    WHEN ${userTable.id} IS NOT NULL THEN
+                        json_build_object(
+                            'id', ${userTable.id},
+                            'username', ${userTable.username},
+                            'email', ${userTable.email}
+                        )
+                    ELSE NULL
+                END`,
                 customerId: customerDueTable.customerId,
                 maintainsId: customerDueTable.maintainsId,
                 totalAmount: customerDueTable.totalAmount,
@@ -248,7 +269,15 @@ export class CustomerDueService {
             id: customerDueTable.id,
             createdAt: customerDueTable.createdAt,
             updatedAt: customerDueTable.updatedAt,
-            createdBy: customerDueTable.createdBy,
+            createdBy: sql`CASE
+                WHEN ${userTable.id} IS NOT NULL THEN
+                    json_build_object(
+                        'id', ${userTable.id},
+                        'username', ${userTable.username},
+                        'email', ${userTable.email}
+                    )
+                ELSE NULL
+            END`,
             customerId: customerDueTable.customerId,
             maintainsId: customerDueTable.maintainsId,
             totalAmount: customerDueTable.totalAmount,

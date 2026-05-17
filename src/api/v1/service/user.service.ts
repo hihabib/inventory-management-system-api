@@ -7,7 +7,22 @@ import { FilterOptions, filterWithPaginate, PaginationOptions } from '../utils/f
 import { generateToken } from '../utils/jwt';
 import { roleTable } from '../drizzle/schema/role';
 import { maintainsTable } from '../drizzle/schema/maintains';
+import { userMetaTable } from '../drizzle/schema/userMeta';
+import { userSessionTable } from '../drizzle/schema/userSession';
 import { getCurrentDate } from '../utils/timezone';
+import { NAV_PERMISSIONS_KEY } from './user-meta.service';
+
+// Look up the nav_permissions metadata for a user, returning the JSON object
+// or null if nothing has been configured.
+async function getUserNavPermissions(userId: string): Promise<Record<string, boolean> | null> {
+  const rows = await db.select({ value: userMetaTable.value })
+    .from(userMetaTable)
+    .where(and(eq(userMetaTable.userId, userId), eq(userMetaTable.key, NAV_PERMISSIONS_KEY)))
+    .limit(1);
+  if (!rows.length) return null;
+  const value = rows[0].value;
+  return (value && typeof value === 'object') ? value as Record<string, boolean> : null;
+}
 
 export class UserService {
   // Create a new user
@@ -108,7 +123,7 @@ export class UserService {
   }
 
   // Sign in user
-  static async signIn(username: string, password: string) {
+  static async signIn(username: string, password: string, opts?: { userAgent?: string; ipAddress?: string }) {
     // Find user by username
     const user = await db.select({
       id: userTable.id,
@@ -152,23 +167,65 @@ export class UserService {
       throw new AppError('Maintains is inactive', 403);
     }
 
-    // Generate JWT token with role
+    // Create a server-side session row so we can revoke this login later
+    // (force-logout, soft-delete, user-initiated logout).
+    const [session] = await db.insert(userSessionTable).values({
+      userId: user[0].id,
+      userAgent: opts?.userAgent || '',
+      ipAddress: opts?.ipAddress || '',
+    }).returning({ id: userSessionTable.id });
+
+    // Generate JWT token with role + sessionId
     const token = generateToken({
       id: user[0].id,
       username: user[0].username,
       email: user[0].email,
       roleId: user[0].role.roleId,
+      sessionId: session.id,
     });
+
+    // Look up navigation permission overrides (used by the frontend sidebar
+    // to hide menu items for restricted users — currently relevant for the
+    // production role).
+    const navPermissions = await getUserNavPermissions(user[0].id);
 
     // Return user data without password and token
     const { password: _, ...userWithoutPassword } = user[0];
 
     return {
-      user: userWithoutPassword,
+      user: { ...userWithoutPassword, navPermissions },
       token
     };
   }
- 
+
+  // Revoke a single session (used by self-logout).
+  static async revokeSession(sessionId: string) {
+    const [updated] = await db.update(userSessionTable)
+      .set({ revokedAt: getCurrentDate() })
+      .where(and(eq(userSessionTable.id, sessionId), isNull(userSessionTable.revokedAt)))
+      .returning();
+    return updated || null;
+  }
+
+  // Revoke every active session for a given user (used by admin force-logout
+  // and by deleteUser).
+  static async revokeAllSessionsForUser(userId: string) {
+    const updated = await db.update(userSessionTable)
+      .set({ revokedAt: getCurrentDate() })
+      .where(and(eq(userSessionTable.userId, userId), isNull(userSessionTable.revokedAt)))
+      .returning();
+    return updated;
+  }
+
+  // List the sessions for a user. By default returns only active (non-revoked)
+  // sessions; pass includeRevoked=true for an audit view.
+  static async getSessionsForUser(userId: string, includeRevoked: boolean = false) {
+    const whereExpr = includeRevoked
+      ? eq(userSessionTable.userId, userId)
+      : and(eq(userSessionTable.userId, userId), isNull(userSessionTable.revokedAt));
+    return await db.select().from(userSessionTable).where(whereExpr).orderBy(userSessionTable.lastActiveAt);
+  }
+
   static async getUserByIdWithRoleMaintains(id: string) {
     const rows = await db.select({
       id: userTable.id,
@@ -196,7 +253,9 @@ export class UserService {
       .leftJoin(maintainsTable, eq(userTable.maintainsId, maintainsTable.id))
       .where(and(eq(userTable.id, id), isNull(userTable.deletedAt)))
       .limit(1);
-    return rows[0] || null;
+    if (!rows[0]) return null;
+    const navPermissions = await getUserNavPermissions(id);
+    return { ...rows[0], navPermissions };
   }
  
   static async updateUser(id: string, updates: Partial<NewUser>) {
@@ -242,6 +301,13 @@ export class UserService {
       .returning();
     if (!deleted) {
       return null;
+    }
+    // Soft-delete also invalidates every existing JWT for this user by
+    // revoking their server-side sessions.
+    try {
+      await UserService.revokeAllSessionsForUser(id);
+    } catch (err) {
+      console.warn('[deleteUser] failed to revoke sessions:', err);
     }
     const { password, ...userWithoutPassword } = deleted as any;
     return userWithoutPassword;

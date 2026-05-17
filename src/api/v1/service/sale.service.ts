@@ -16,6 +16,7 @@ import { cashSendingTable } from "../drizzle/schema/cashSending";
 import { userTable } from "../drizzle/schema/user";
 import { maintainsTable } from "../drizzle/schema/maintains";
 import { customerCategoryTable } from "../drizzle/schema/customerCategory";
+import { customerTable } from "../drizzle/schema/customer";
 import { getCurrentDate } from "../utils/timezone";
 import { productCategoryTable } from "../drizzle/schema/productCategory";
 import { productCategoryInProductTable } from "../drizzle/schema/productCategoryInProduct";
@@ -53,6 +54,9 @@ interface SaleRequest {
     totalDiscount: number;
     totalPriceWithDiscount: number;
     paymentInfo: PaymentInfo[];
+    customerPhone: string;
+    customerName?: string;
+    customerEmail?: string;
     customerId?: string;
     customerCategoryId?: string;
 }
@@ -61,6 +65,30 @@ export class SaleService {
     static async createSale(saleData: SaleRequest, userId: string) {
         return await db.transaction(async (tx) => {
             try {
+                // ── Resolve customer from phone (find or create) ──────────────────
+                let resolvedCustomerId: string | null = saleData.customerId || null;
+                if (saleData.customerPhone) {
+                    const [existingCustomer] = await tx
+                        .select({ id: customerTable.id })
+                        .from(customerTable)
+                        .where(eq(customerTable.phone, saleData.customerPhone))
+                        .limit(1);
+                    if (existingCustomer) {
+                        resolvedCustomerId = existingCustomer.id;
+                    } else {
+                        const [newCustomer] = await tx
+                            .insert(customerTable)
+                            .values({
+                                phone: saleData.customerPhone,
+                                name: saleData.customerName || '',
+                                email: saleData.customerEmail || '',
+                                createdBy: userId,
+                            })
+                            .returning();
+                        resolvedCustomerId = newCustomer.id;
+                    }
+                }
+
                 const insufficientProducts: string[] = [];
                 for (const product of saleData.products) {
                     const stocks = await tx
@@ -195,7 +223,7 @@ export class SaleService {
                         createdBy: userId,
                         maintainsId: saleData.maintainsId,
                         customerCategoryId: saleData.customerCategoryId || null,
-                        customerId: saleData.customerId || null,
+                        customerId: resolvedCustomerId,
                         productId: product.productId,
                         productName: product.productName,
                         discountType: discountType,
@@ -245,18 +273,18 @@ export class SaleService {
                     throw new Error(`Payment total (${totalPaymentAmount}) does not match sale total (${saleData.totalPriceWithDiscount})`);
                 }
 
-                // Check if due amount is present and validate customer ID
+                // Check if due amount is present and validate customer
                 const dueAmount = paymentMethods.due;
-                if (dueAmount > 0 && !saleData.customerId) {
-                    throw new Error("Customer ID is required when due amount is greater than 0");
+                if (dueAmount > 0 && !resolvedCustomerId) {
+                    throw new Error("Customer phone is required when due amount is greater than 0");
                 }
 
                 // Create customer due record if due amount exists
                 let customerDueId: string | null = null;
-                if (dueAmount > 0 && saleData.customerId) {
+                if (dueAmount > 0 && resolvedCustomerId) {
                     const [customerDue] = await tx.insert(customerDueTable).values({
                         createdBy: userId,
-                        customerId: saleData.customerId,
+                        customerId: resolvedCustomerId,
                         maintainsId: saleData.maintainsId,
                         totalAmount: dueAmount,
                         paidAmount: 0

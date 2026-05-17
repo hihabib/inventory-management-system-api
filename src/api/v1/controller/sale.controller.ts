@@ -19,6 +19,10 @@ export class SaleController {
             return sendResponse(res, 400, "Invalid sale data. maintainsId and products array are required");
         }
 
+        if (!saleData.customerPhone || typeof saleData.customerPhone !== 'string' || !saleData.customerPhone.trim()) {
+            return sendResponse(res, 400, "Customer phone number is required");
+        }
+
         if (!saleData.paymentInfo || !Array.isArray(saleData.paymentInfo) || saleData.paymentInfo.length === 0) {
             return sendResponse(res, 400, "Payment information is required");
         }
@@ -89,12 +93,6 @@ export class SaleController {
         // Validate payment total matches sale total
         if (Math.abs(totalPaymentAmount - saleData.totalPriceWithDiscount) > 0.01) {
             return sendResponse(res, 400, `Total payment amount (${totalPaymentAmount}) does not match sale total (${saleData.totalPriceWithDiscount})`);
-        }
-
-        // Check if due payment requires customer ID
-        const duePayment = saleData.paymentInfo.find((p: any) => p.method === 'due' && p.amount > 0);
-        if (duePayment && !saleData.customerId) {
-            return sendResponse(res, 400, "Customer ID is required when due amount is greater than 0");
         }
 
         // Validate total amounts

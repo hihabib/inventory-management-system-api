@@ -1,13 +1,38 @@
 import { Response } from 'express';
+import { eq } from 'drizzle-orm';
 import { requestHandler } from '../utils/requestHandler';
 import { sendResponse } from '../utils/response';
 import { AuthRequest } from '../middleware/auth';
 import { UserMetaService } from '../service/user-meta.service';
+import { db } from '../drizzle/db';
+import { userTable } from '../drizzle/schema/user';
+import { roleTable } from '../drizzle/schema/role';
 
 interface PutUserMetaBody {
   key: string;
   value: any;
   merge?: boolean;
+}
+
+// Verify the calling user has the 'admin' or 'manager' role. The auth
+// middleware only attaches role id, so we resolve the role name here.
+async function assertAdminOrManager(req: AuthRequest, res: Response): Promise<boolean> {
+  const userId = req.user?.id;
+  if (!userId) {
+    sendResponse(res, 401, 'User not authenticated');
+    return false;
+  }
+  const rows = await db.select({ roleName: roleTable.name })
+    .from(userTable)
+    .leftJoin(roleTable, eq(userTable.roleId, roleTable.id))
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  const roleName = rows[0]?.roleName;
+  if (roleName !== 'admin' && roleName !== 'manager') {
+    sendResponse(res, 403, 'Only admin or manager can perform this action');
+    return false;
+  }
+  return true;
 }
 
 export class UserMetaController {
@@ -62,6 +87,39 @@ export class UserMetaController {
 
     const result = await UserMetaService.setUserMeta(userId, key, value, merge);
     sendResponse(res, 200, 'User metadata updated successfully', result);
+  });
+
+  // GET /api/v1/user-meta/admin/:userId/nav-permissions
+  // Admin/manager-only: read another user's navigation permissions.
+  static getNavPermissionsForUser = requestHandler(async (req: AuthRequest, res: Response) => {
+    if (!(await assertAdminOrManager(req, res))) return;
+    const { userId } = req.params as { userId: string };
+    if (!userId) {
+      return sendResponse(res, 400, 'userId is required');
+    }
+    const permissions = await UserMetaService.getNavPermissionsForUser(userId);
+    sendResponse(res, 200, 'Navigation permissions retrieved', { userId, permissions });
+  });
+
+  // PUT /api/v1/user-meta/admin/:userId/nav-permissions
+  // Admin/manager-only: overwrite another user's navigation permissions.
+  static setNavPermissionsForUser = requestHandler(async (req: AuthRequest, res: Response) => {
+    if (!(await assertAdminOrManager(req, res))) return;
+    const { userId } = req.params as { userId: string };
+    if (!userId) {
+      return sendResponse(res, 400, 'userId is required');
+    }
+    const body = (req.body ?? {}) as { permissions?: Record<string, unknown> };
+    if (!body.permissions || typeof body.permissions !== 'object') {
+      return sendResponse(res, 400, 'permissions object is required');
+    }
+    // Coerce values to plain booleans so we never store garbage.
+    const sanitized: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(body.permissions)) {
+      sanitized[k] = Boolean(v);
+    }
+    const result = await UserMetaService.setNavPermissionsForUser(userId, sanitized);
+    sendResponse(res, 200, 'Navigation permissions updated', result);
   });
 
   // DELETE /api/v1/user-meta/:key - Delete user metadata by key
